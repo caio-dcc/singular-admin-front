@@ -298,7 +298,12 @@ export default function App() {
       ytPlayerRef.current = new window.YT.Player('yt-player-mount', {
         height: '100%',
         width: '100%',
-        playerVars: { autoplay: 0, rel: 0 },
+        playerVars: {
+          autoplay: 0,
+          rel: 0,
+          enablejsapi: 1,
+          origin: window.location.origin,
+        },
         events: {
           onReady: () => {
             clearTimeout(ytReadyTimeoutRef.current);
