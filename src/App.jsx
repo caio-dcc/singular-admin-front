@@ -1047,11 +1047,11 @@ export default function App() {
                     style={s(`width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:8px 12px;border-radius:8px;background:transparent;color:${th.surfaceText};border:1px solid ${th.surfaceBorder};font-family:${FONT};font-size:12.5px;font-weight:600;cursor:pointer;transition:all 0.18s ease`)}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = th.hoverBg;
-                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.25)';
+                      e.currentTarget.style.border = '1px solid rgba(255,255,255,0.25)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.borderColor = th.surfaceBorder;
+                      e.currentTarget.style.border = `1px solid ${th.surfaceBorder}`;
                     }}
                   >
                     <span>Conect Me</span>
@@ -1077,8 +1077,8 @@ export default function App() {
                     onClick={openWhatsappChat}
                     style={s(`flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 10px;border-radius:8px;background:transparent;color:${th.surfaceText};border:1px solid ${th.surfaceBorder};font-family:${FONT};font-size:11.5px;font-weight:600;cursor:pointer;transition:all 0.15s ease`)}
                     title="Abrir Chat"
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.25)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = th.surfaceBorder; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.25)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.border = `1px solid ${th.surfaceBorder}`; }}
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -1349,8 +1349,23 @@ export default function App() {
                             key={task.id}
                             as="div"
                             onClick={task.cardClick}
-                            base={s(`position:relative;background:${th.cardBg};border:1px solid ${th.cardBorder};border-left:3px solid ${task.statusColor};border-radius:10px;padding:14px;cursor:pointer;overflow:hidden`)}
-                            hover={{ borderColor: th.accent }}
+                            base={{
+                              position: 'relative',
+                              background: th.cardBg,
+                              borderTop: `1px solid ${th.cardBorder}`,
+                              borderRight: `1px solid ${th.cardBorder}`,
+                              borderBottom: `1px solid ${th.cardBorder}`,
+                              borderLeft: `3px solid ${task.statusColor}`,
+                              borderRadius: 10,
+                              padding: 14,
+                              cursor: 'pointer',
+                              overflow: 'hidden',
+                            }}
+                            hover={{
+                              borderTop: `1px solid ${th.accent}`,
+                              borderRight: `1px solid ${th.accent}`,
+                              borderBottom: `1px solid ${th.accent}`,
+                            }}
                           >
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, opacity: task.cardOpacity }}>
                               <span style={s(`color:${th.muted};font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em`)}>{task.projeto}</span>
