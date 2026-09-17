@@ -1,5 +1,88 @@
-html, body { margin: 0; padding: 0; }
-* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* 1. Global: Hide scrollbar buttons (arrows) completely on WebKit/Blink */
+::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
+}
+
+/* 2. Global: Hide scrollbar corners */
+::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-corner {
+  display: none !important;
+  background: transparent !important;
+}
+
+/* 3. Global: Eliminate any horizontal scrollbars */
+::-webkit-scrollbar:horizontal,
+*::-webkit-scrollbar:horizontal {
+  display: none !important;
+  height: 0px !important;
+  width: 0px !important;
+}
+
+::-webkit-scrollbar-track:horizontal,
+*::-webkit-scrollbar-track:horizontal {
+  display: none !important;
+  height: 0px !important;
+  background: transparent !important;
+}
+
+::-webkit-scrollbar-thumb:horizontal,
+*::-webkit-scrollbar-thumb:horizontal {
+  display: none !important;
+  height: 0px !important;
+  background: transparent !important;
+}
+
+/* 4. Global: Sleek vertical scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 0px !important;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 5. Utility classes to hide scrollbars completely (both horizontal and vertical) */
+.no-scrollbar,
+.hide-scrollbar,
+[class*="hide-scrollbar"],
+[class*="no-scrollbar"] {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+.no-scrollbar::-webkit-scrollbar,
+.hide-scrollbar::-webkit-scrollbar,
+[class*="hide-scrollbar"]::-webkit-scrollbar,
+[class*="no-scrollbar"]::-webkit-scrollbar {
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
+}
 
 @keyframes slideUpIn { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @keyframes slideDownIn { from { transform: translateY(-24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }

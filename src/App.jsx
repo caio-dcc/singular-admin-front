@@ -906,7 +906,7 @@ export default function App() {
   );
 
   return (
-    <div style={s(`position:relative;width:100%;min-height:100vh;overflow-y:auto;background:${view === 'app' ? th.pageBg : '#050f13'};font-family:${FONT}`)}>
+    <div style={s(`position:relative;width:100%;min-height:100vh;overflow-x:hidden;overflow-y:auto;background:${view === 'app' ? th.pageBg : '#050f13'};font-family:${FONT}`)}>
       {view === 'login' && (
         <>
           <canvas ref={bgCanvasRef} style={s('position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0')} />
@@ -1334,7 +1334,7 @@ export default function App() {
 
               <div>
                 {boardView === 'kanban' && (
-                  <div style={s('display:flex;gap:16px;overflow-x:auto;padding-bottom:40px')}>
+                  <div className="hide-scrollbar" style={s('display:flex;gap:16px;overflow-x:auto;padding-bottom:40px;scrollbar-width:none;-ms-overflow-style:none')}>
                     {kanbanColumns.map((col) => (
                       <div key={col.id} style={s('flex:0 0 250px;display:flex;flex-direction:column;gap:12px')}>
                         <div style={s('display:flex;align-items:center;justify-content:space-between;padding:0 4px')}>
@@ -1384,7 +1384,7 @@ export default function App() {
                 )}
 
                 {boardView === 'table' && (
-                  <div style={s('overflow-x:auto;padding-bottom:40px')}>
+                  <div className="hide-scrollbar" style={s('overflow-x:auto;padding-bottom:40px;scrollbar-width:none;-ms-overflow-style:none')}>
                     <table style={s('width:100%;border-collapse:collapse;background:transparent;min-width:760px')}>
                       <thead>
                         <tr>
@@ -1571,15 +1571,26 @@ export default function App() {
           </div>
 
           <div style={playerBoxStyle}>
-            {videoModalOpen && (
-              <div style={s('position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(0,0,0,0.7);z-index:2')}>
-                <span style={s('color:#fff;font-size:11.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80%')}>{currentSongTitle}</span>
-                <button onClick={() => setState({ videoModalOpen: false })} style={s('background:none;border:none;color:#fff;cursor:pointer;padding:2px')}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                </button>
-              </div>
-            )}
-            <div id="yt-player-mount" style={s('width:100%;height:100%')}></div>
+            <div style={{
+              display: videoModalOpen ? 'flex' : 'none',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 10px',
+              background: 'rgba(0,0,0,0.75)',
+              zIndex: 2,
+            }}>
+              <span style={s('color:#fff;font-size:11.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80%')}>{currentSongTitle}</span>
+              <button onClick={() => setState({ videoModalOpen: false })} style={s('background:none;border:none;color:#fff;cursor:pointer;padding:2px')}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <div style={{ width: '100%', height: '100%' }}>
+              <div id="yt-player-mount" style={{ width: '100%', height: '100%' }}></div>
+            </div>
           </div>
 
           {redirectModalOpen && (
