@@ -18,6 +18,7 @@ export const api = {
   deleteTask: (id) => request(`/tasks/${id}`, { method: 'DELETE' }),
   getSongs: () => request('/songs'),
   addSong: (song) => request('/songs', { method: 'POST', body: JSON.stringify(song) }),
+  deleteSong: (id) => request(`/songs/${id}`, { method: 'DELETE' }),
   getPlaylists: () => request('/playlists'),
   addPlaylist: (playlist) => request('/playlists', { method: 'POST', body: JSON.stringify(playlist) }),
   getWhatsappStatus: () => request('/whatsapp/status'),

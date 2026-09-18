@@ -479,6 +479,25 @@ export default function App() {
       .catch(() => console.warn('Backend unreachable — song added locally only.'));
   }
 
+  function deleteSong(id) {
+    setState((s2) => {
+      const nextSongs = s2.songs.filter((sg) => sg.id !== id);
+      const nextPlaylists = s2.playlists.map((pl) => ({
+        ...pl,
+        songIds: pl.songIds.filter((sid) => sid !== id),
+      }));
+      const isCurrentSong = s2.currentSongId === id;
+      return {
+        songs: nextSongs,
+        playlists: nextPlaylists,
+        currentSongId: isCurrentSong ? (nextSongs[0]?.id || null) : s2.currentSongId,
+        isPlaying: isCurrentSong ? false : s2.isPlaying,
+      };
+    });
+    api.deleteSong(id).catch(() => console.warn('Backend unreachable — song deleted locally only.'));
+    addToast({ title: 'Faixa excluída', message: 'A música foi removida da lista.', accent: '#e5847c' });
+  }
+
   function createPlaylist() {
     if (!newPlaylistName.trim() || !newPlaylistSongIds.length) return;
     const playlist = { id: 'p' + Date.now(), nome: newPlaylistName.trim(), songIds: [...newPlaylistSongIds] };
@@ -1701,11 +1720,43 @@ export default function App() {
                         <div style={s(`color:${th.surfaceText};font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`)}>{song.titulo}</div>
                         <div style={s(`color:${th.surfaceMuted};font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`)}>{song.addedBy}</div>
                       </div>
-                      <button onClick={song.playAudio} aria-label="Tocar" style={{ ...s(`background:${th.hoverBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${th.surfaceText};cursor:pointer;flex-shrink:0`), opacity: song.btnOpacity, pointerEvents: song.btnPointer }}>
+                      <button onClick={song.playAudio} title="Tocar áudio" aria-label="Tocar" style={{ ...s(`background:${th.hoverBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${th.surfaceText};cursor:pointer;flex-shrink:0`), opacity: song.btnOpacity, pointerEvents: song.btnPointer }}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"></polygon></svg>
                       </button>
-                      <button onClick={song.playVideo} aria-label="Abrir vídeo" style={{ ...s(`background:${th.hoverBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${th.surfaceText};cursor:pointer;flex-shrink:0`), opacity: song.btnOpacity, pointerEvents: song.btnPointer }}>
+                      <button onClick={song.playVideo} title="Abrir vídeo" aria-label="Abrir vídeo" style={{ ...s(`background:${th.hoverBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${th.surfaceText};cursor:pointer;flex-shrink:0`), opacity: song.btnOpacity, pointerEvents: song.btnPointer }}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="14" height="14" rx="2"></rect><polygon points="16,9 22,6 22,18 16,15" fill="currentColor" stroke="none"></polygon></svg>
+                      </button>
+                      <button
+                        onClick={() => deleteSong(song.id)}
+                        title="Excluir faixa"
+                        aria-label="Excluir faixa"
+                        style={{
+                          background: th.hoverBg,
+                          border: 'none',
+                          borderRadius: 6,
+                          width: 26,
+                          height: 26,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: th.surfaceMuted,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = '#ef4444';
+                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.12)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = th.surfaceMuted;
+                          e.currentTarget.style.background = th.hoverBg;
+                        }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 6h18"></path>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
                       </button>
                     </div>
                   ))}
