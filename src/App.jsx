@@ -1696,8 +1696,7 @@ export default function App() {
 
                 <div style={s('flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;min-height:120px')}>
                   {pagedSongs.map((song) => (
-                    <div key={song.id} style={s('display:flex;align-items:center;gap:10px;padding:6px')}>
-                      <div style={{ ...s('width:40px;height:28px;background-size:cover;background-position:center;border-radius:4px;flex-shrink:0'), backgroundImage: `url('${song.thumb}')` }}></div>
+                    <div key={song.id} style={s('display:flex;align-items:center;gap:10px;padding:8px 6px')}>
                       <div style={s('flex:1;min-width:0')}>
                         <div style={s(`color:${th.surfaceText};font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`)}>{song.titulo}</div>
                         <div style={s(`color:${th.surfaceMuted};font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`)}>{song.addedBy}</div>
