@@ -178,8 +178,9 @@ const initialState = {
   whatsappQrLoading: false,
   whatsappQrData: '',
   whatsappChats: WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] })),
-  whatsappActiveChatId: 'c1',
+  whatsappActiveChatId: 'general',
   whatsappMessageDraft: '',
+  whatsappEphemeralMode: false,
   whatsappSearch: '',
   whatsappFilter: 'all',
   whatsappEmojiPickerOpen: false,
@@ -212,7 +213,7 @@ export default function App() {
     newTitulo, newLink, newAddedBy, currentSongId, currentPlaylistId, isPlaying, repeat, shuffle,
     videoModalOpen, playerUnavailable, volume, isMuted, volumeHover, playlistModalOpen, newPlaylistName, newPlaylistSongIds, toasts,
     whatsappConnected, whatsappQrModalOpen, whatsappChatModalOpen, whatsappQrLoading, whatsappQrData,
-    whatsappChats, whatsappActiveChatId, whatsappMessageDraft, whatsappSearch, whatsappFilter, whatsappEmojiPickerOpen, wahaServerUrl,
+    whatsappChats, whatsappActiveChatId, whatsappMessageDraft, whatsappEphemeralMode, whatsappSearch, whatsappFilter, whatsappEmojiPickerOpen, wahaServerUrl,
   } = state;
 
   // ---------- helpers ----------
@@ -548,6 +549,7 @@ export default function App() {
     setState((s2) => ({
       whatsappConnected: true,
       whatsappChatModalOpen: true,
+      whatsappActiveChatId: 'general',
       mobileSidebarOpen: false,
       whatsappChats: (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
         ? s2.whatsappChats
@@ -557,24 +559,26 @@ export default function App() {
 
   function sendWhatsappMessage() {
     const text = whatsappMessageDraft.trim();
-    if (!text || !whatsappActiveChatId) return;
+    if (!text) return;
     const now = new Date();
     const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const isEphemeral = !!whatsappEphemeralMode;
     const newMsg = {
       id: 'm_' + Date.now(),
       text,
       sender: 'me',
       timestamp: timeStr,
       status: 'sent',
+      isEphemeral,
     };
 
-    let targetChatId = whatsappActiveChatId;
+    let targetChatId = whatsappActiveChatId || 'general';
     setState((s2) => {
       const baseChats = (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
         ? s2.whatsappChats
         : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] }));
       const updatedChats = baseChats.map((c) => {
-        if (c.id === s2.whatsappActiveChatId) {
+        if (c.id === targetChatId) {
           return {
             ...c,
             messages: [...(c.messages || []), newMsg],
@@ -583,7 +587,11 @@ export default function App() {
         return c;
       });
       try {
-        localStorage.setItem('singular_whatsapp_chats', JSON.stringify(updatedChats));
+        const toSave = updatedChats.map((c) => ({
+          ...c,
+          messages: (c.messages || []).filter((m) => !m.isEphemeral),
+        }));
+        localStorage.setItem('singular_whatsapp_chats', JSON.stringify(toSave));
       } catch (e) {}
       return {
         whatsappChats: updatedChats,
@@ -592,22 +600,30 @@ export default function App() {
       };
     });
 
-    // Auto reply simulation after 1.2s
+    // Auto reply simulation after 1.2s from one of the other team members
     setTimeout(() => {
+      const teamMembers = [
+        { name: 'Gabriel Alves', color: '#4fd1de' },
+        { name: 'Caio Araújo', color: '#8c6e2a' },
+        { name: 'Henrique Gomes', color: '#1e5f6e' },
+      ];
+      const randomMember = teamMembers[Math.floor(Math.random() * teamMembers.length)];
       const replyTime = new Date();
       const replyTimeStr = String(replyTime.getHours()).padStart(2, '0') + ':' + String(replyTime.getMinutes()).padStart(2, '0');
       const replyReplies = [
-        'Perfeito, já verifiquei no Singular Scrum e está 100%!',
-        'Excelente! Acabei de atualizar os cards da sprint.',
-        'Combinado! Obrigado pelo feedback rápido.',
-        'Show de bola, seguimos acompanhando pelo Kanban.',
-        'Tudo certo, te aviso assim que concluir a próxima tarefa.',
+        'Perfeito! Já acompanhei no Singular Scrum e os cards estão 100% alinhados.',
+        'Excelente! Acabei de atualizar a tarefa no Kanban.',
+        'Combinado! Qualquer novidade coloco aqui no bate-papo geral.',
+        'Show de bola, seguimos com a sprint!',
+        'Tudo certo, testes unitários e integrações aprovados.',
       ];
       const randomReply = replyReplies[Math.floor(Math.random() * replyReplies.length)];
       const replyMsg = {
         id: 'm_' + Date.now(),
         text: randomReply,
         sender: 'contact',
+        author: randomMember.name,
+        authorBg: randomMember.color,
         timestamp: replyTimeStr,
         status: 'received',
       };
@@ -619,13 +635,17 @@ export default function App() {
           if (c.id === targetChatId) {
             return {
               ...c,
-              messages: [...(c.messages || []), { ...replyMsg, author: c.isGroup ? c.name.split(' ')[0] : undefined }],
+              messages: [...(c.messages || []), replyMsg],
             };
           }
           return c;
         });
         try {
-          localStorage.setItem('singular_whatsapp_chats', JSON.stringify(updated));
+          const toSave = updated.map((c) => ({
+            ...c,
+            messages: (c.messages || []).filter((m) => !m.isEphemeral),
+          }));
+          localStorage.setItem('singular_whatsapp_chats', JSON.stringify(toSave));
         } catch (e) {}
         return {
           whatsappChats: updated,
@@ -647,7 +667,15 @@ export default function App() {
         try {
           const parsed = JSON.parse(savedChats);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setState({ whatsappChats: parsed });
+            const hasGeneral = parsed.some((c) => c.id === 'general');
+            if (hasGeneral) {
+              setState({ whatsappChats: parsed, whatsappActiveChatId: 'general' });
+            } else {
+              setState({
+                whatsappChats: WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] })),
+                whatsappActiveChatId: 'general',
+              });
+            }
           }
         } catch (e) {}
       }
@@ -1826,9 +1854,9 @@ export default function App() {
                     boxSizing: 'border-box',
                   }}
                 >
-                  {/* Top Bar with Contact Selector */}
+                  {/* Top Bar for Bate-papo Geral */}
                   <div style={{
-                    minHeight: 54,
+                    minHeight: 56,
                     background: '#202c33',
                     borderBottom: '1px solid #2a3942',
                     display: 'flex',
@@ -1838,13 +1866,13 @@ export default function App() {
                     flexShrink: 0,
                     gap: 12,
                   }}>
-                    {/* Left: Avatar + Select contact */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                    {/* Left: Team Avatar + Title */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 11, flex: 1, minWidth: 0 }}>
                       <div style={{
-                        width: 36,
-                        height: 36,
+                        width: 38,
+                        height: 38,
                         borderRadius: '50%',
-                        background: activeChat ? (activeChat.avatarBg || '#2a8c97') : '#2a8c97',
+                        background: 'linear-gradient(135deg, #2a8c97 0%, #155e69 100%)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -1852,52 +1880,23 @@ export default function App() {
                         fontWeight: 700,
                         fontSize: 13,
                         flexShrink: 0,
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
                       }}>
-                        {activeChat ? activeChat.avatar : 'C'}
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1">
+                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                          <circle cx="9" cy="7" r="4"></circle>
+                          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                        </svg>
                       </div>
 
-                      {/* Select Dropdown */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1, maxWidth: 320 }}>
-                        <select
-                          value={activeChat ? activeChat.id : ''}
-                          onChange={(e) => {
-                            const newId = e.target.value;
-                            setState((s2) => {
-                              const currentChats = (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
-                                ? s2.whatsappChats
-                                : WHATSAPP_CHATS_SEED.map((item) => ({ ...item, messages: [...item.messages] }));
-                              return {
-                                whatsappActiveChatId: newId,
-                                whatsappChats: currentChats.map((item) => item.id === newId ? { ...item, unread: 0 } : item),
-                              };
-                            });
-                          }}
-                          style={{
-                            background: '#111b21',
-                            color: '#e9edef',
-                            border: '1px solid #2a3942',
-                            borderRadius: 8,
-                            padding: '5px 10px',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            fontFamily: FONT,
-                            outline: 'none',
-                            cursor: 'pointer',
-                            width: '100%',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {safeWhatsappChats.map((c) => (
-                            <option key={c.id} value={c.id} style={{ background: '#111b21', color: '#e9edef' }}>
-                              {c.name} {c.unread > 0 ? `(${c.unread} não lidas)` : ''}
-                            </option>
-                          ))}
-                        </select>
-                        {activeChat && (
-                          <span style={{ fontSize: 10.5, color: '#8696a0', paddingLeft: 2 }}>
-                            {activeChat.lastSeen || (activeChat.online ? 'online' : 'visto recentemente')}
-                          </span>
-                        )}
+                      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                        <span style={{ color: '#e9edef', fontSize: 14, fontWeight: 700, letterSpacing: '0.01em', fontFamily: FONT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {appT.generalChatTitle || 'Bate-papo Geral'}
+                        </span>
+                        <span style={{ fontSize: 11, color: '#8696a0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {appT.generalChatSubtitle || 'Gabriel A., Caio A., Henrique G. e você'} • <span style={{ color: '#4fd1de', fontWeight: 600 }}>4 online</span>
+                        </span>
                       </div>
                     </div>
 
@@ -1905,13 +1904,19 @@ export default function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                       <button
                         onClick={() => {
-                          if (!activeChat) return;
+                          const teamMembers = [
+                            { name: 'Gabriel Alves', color: '#4fd1de' },
+                            { name: 'Caio Araújo', color: '#8c6e2a' },
+                            { name: 'Henrique Gomes', color: '#1e5f6e' },
+                          ];
+                          const randomMember = teamMembers[Math.floor(Math.random() * teamMembers.length)];
                           const replyReplies = [
                             'Acabei de atualizar as tarefas no Singular Scrum! Tudo no prazo.',
                             'Perfeito, Caio! Já fiz o merge da pull request.',
-                            'Reunião confirmada para amanhã cedo.',
+                            'Reunião de alinhamento diário confirmada.',
                             'Excelente trabalho nessa sprint!',
-                            'Combinado! Qualquer novidade te aviso por aqui.',
+                            'Combinado! Qualquer novidade coloco aqui no canal geral.',
+                            'Testes unitários validados no backend e Bitrix24.',
                           ];
                           const randomReply = replyReplies[Math.floor(Math.random() * replyReplies.length)];
                           const now = new Date();
@@ -1920,7 +1925,8 @@ export default function App() {
                             id: 'm_' + Date.now(),
                             text: randomReply,
                             sender: 'contact',
-                            author: activeChat.isGroup ? activeChat.name.split(' ')[0] : undefined,
+                            author: randomMember.name,
+                            authorBg: randomMember.color,
                             timestamp: timeStr,
                             status: 'received',
                           };
@@ -1928,8 +1934,15 @@ export default function App() {
                             const currentChats = (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
                               ? s2.whatsappChats
                               : WHATSAPP_CHATS_SEED.map((item) => ({ ...item, messages: [...item.messages] }));
-                            const updated = currentChats.map((c) => c.id === activeChat.id ? { ...c, messages: [...(c.messages || []), replyMsg] } : c);
-                            try { localStorage.setItem('singular_whatsapp_chats', JSON.stringify(updated)); } catch (e) {}
+                            const targetId = s2.whatsappActiveChatId || currentChats[0]?.id || 'general';
+                            const updated = currentChats.map((c) => c.id === targetId ? { ...c, messages: [...(c.messages || []), replyMsg] } : c);
+                            try {
+                              const toSave = updated.map((c) => ({
+                                ...c,
+                                messages: (c.messages || []).filter((m) => !m.isEphemeral),
+                              }));
+                              localStorage.setItem('singular_whatsapp_chats', JSON.stringify(toSave));
+                            } catch (e) {}
                             return { whatsappChats: updated };
                           });
                         }}
@@ -1949,10 +1962,34 @@ export default function App() {
                         }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                        title="Simular resposta deste contato"
+                        title="Simular mensagem recebida de um membro da equipe"
                       >
                         <span>⚡</span>
                         <span>{appT.whatsappSimulateReply || 'Simular'}</span>
+                      </button>
+
+                      <button
+                        onClick={handleClearWhatsappCache}
+                        title="Limpar histórico de mensagens"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#8696a0',
+                          cursor: 'pointer',
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          display: 'flex',
+                          alignItems: 'center',
+                          fontSize: 12,
+                          transition: 'all 0.15s',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#8696a0'; e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 6h18"></path>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
                       </button>
 
                       <button
@@ -1985,7 +2022,7 @@ export default function App() {
                   {/* Chat Area */}
                   {activeChat ? (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0b141a', minHeight: 0, position: 'relative' }}>
-                      {/* Messages Area (Left = Contact, Right = Me) */}
+                      {/* Messages Area (Left = Team Members, Right = Me) */}
                       <div style={{
                         flex: 1,
                         overflowY: 'auto',
@@ -2011,7 +2048,7 @@ export default function App() {
                             boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
                           }}>
                             <span>🔒</span>
-                            <span>Mensagens salvas localmente no cache deste dispositivo</span>
+                            <span>Bate-papo Geral • Mensagens salvas localmente no cache (mensagens efêmeras não persistem)</span>
                           </div>
                         </div>
 
@@ -2028,17 +2065,19 @@ export default function App() {
                               }}
                             >
                               <div style={{
-                                background: isMe ? '#2a3942' : '#202c33',
+                                background: isMe ? (m.isEphemeral ? '#263b40' : '#2a3942') : (m.isEphemeral ? '#1a2c30' : '#202c33'),
                                 color: '#e9edef',
                                 borderRadius: isMe ? '10px 0px 10px 10px' : '0px 10px 10px 10px',
                                 padding: '7px 12px 6px',
-                                border: isMe ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(255,255,255,0.04)',
-                                boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+                                border: m.isEphemeral
+                                  ? '1px dashed rgba(245, 158, 11, 0.55)'
+                                  : (isMe ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(255,255,255,0.04)'),
+                                boxShadow: m.isEphemeral ? '0 1px 6px rgba(245,158,11,0.12)' : '0 1px 3px rgba(0,0,0,0.35)',
                                 position: 'relative',
                                 wordBreak: 'break-word',
                               }}>
                                 {m.author && (
-                                  <div style={{ fontSize: 11, fontWeight: 700, color: '#4fd1de', marginBottom: 2 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: m.authorBg || '#4fd1de', marginBottom: 2 }}>
                                     {m.author}
                                   </div>
                                 )}
@@ -2047,11 +2086,17 @@ export default function App() {
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'flex-end',
-                                  gap: 3,
+                                  gap: 4,
                                   marginTop: 3,
                                   fontSize: 10,
                                   color: '#8696a0',
                                 }}>
+                                  {m.isEphemeral && (
+                                    <span style={{ color: '#fbbf24', fontSize: 9.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3, marginRight: 2 }}>
+                                      <span>⏳</span>
+                                      <span>{appT.ephemeralMode || 'Efêmera'}</span>
+                                    </span>
+                                  )}
                                   <span>{m.timestamp}</span>
                                   {isMe && (
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4fd1de" strokeWidth="2.4">
@@ -2103,6 +2148,41 @@ export default function App() {
                         </div>
                       )}
 
+                      {/* Ephemeral Mode Indicator Banner */}
+                      {whatsappEphemeralMode && (
+                        <div style={{
+                          background: 'rgba(245, 158, 11, 0.12)',
+                          borderTop: '1px solid rgba(245, 158, 11, 0.3)',
+                          padding: '6px 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          color: '#fbbf24',
+                          fontSize: 11,
+                          fontWeight: 600,
+                        }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span>⏳</span>
+                            <span>{appT.ephemeralBanner || 'Modo Efêmero ativo: esta mensagem não é gravada no cache e sumirá ao recarregar'}</span>
+                          </span>
+                          <button
+                            onClick={() => setState({ whatsappEphemeralMode: false })}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#fbbf24',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              textDecoration: 'underline',
+                              fontWeight: 700,
+                              padding: '2px 6px',
+                            }}
+                          >
+                            Desativar
+                          </button>
+                        </div>
+                      )}
+
                       {/* Message Input Footer */}
                       <div style={{
                         minHeight: 56,
@@ -2110,7 +2190,7 @@ export default function App() {
                         padding: '8px 14px',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 10,
+                        gap: 8,
                         flexShrink: 0,
                         borderTop: '1px solid #222d34',
                       }}>
@@ -2128,6 +2208,45 @@ export default function App() {
                           </svg>
                         </button>
 
+                        {/* Ephemeral Mode Toggle */}
+                        <button
+                          onClick={() => setState((s2) => ({ whatsappEphemeralMode: !s2.whatsappEphemeralMode }))}
+                          style={{
+                            background: whatsappEphemeralMode ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
+                            border: whatsappEphemeralMode ? '1px solid rgba(245, 158, 11, 0.5)' : '1px solid transparent',
+                            color: whatsappEphemeralMode ? '#fbbf24' : '#8696a0',
+                            cursor: 'pointer',
+                            padding: '6px 9px',
+                            borderRadius: 6,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            fontFamily: FONT,
+                            transition: 'all 0.15s ease',
+                          }}
+                          title={whatsappEphemeralMode ? 'Desativar modo efêmero' : 'Ativar mensagem efêmera (sem persistência)'}
+                          onMouseEnter={(e) => {
+                            if (!whatsappEphemeralMode) {
+                              e.currentTarget.style.color = '#fff';
+                              e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!whatsappEphemeralMode) {
+                              e.currentTarget.style.color = '#8696a0';
+                              e.currentTarget.style.background = 'transparent';
+                            }
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                          </svg>
+                          <span>{appT.ephemeralMode || 'Efêmera'}</span>
+                        </button>
+
                         {/* Text input */}
                         <input
                           type="text"
@@ -2139,17 +2258,18 @@ export default function App() {
                               sendWhatsappMessage();
                             }
                           }}
-                          placeholder={appT.whatsappTypeMessage || 'Digite uma mensagem...'}
+                          placeholder={whatsappEphemeralMode ? (appT.whatsappTypeEphemeralMessage || 'Digite uma mensagem efêmera...') : (appT.whatsappTypeMessage || 'Digite uma mensagem...')}
                           style={{
                             flex: 1,
-                            background: '#2a3942',
-                            border: 'none',
+                            background: whatsappEphemeralMode ? 'rgba(245, 158, 11, 0.08)' : '#2a3942',
+                            border: whatsappEphemeralMode ? '1px solid rgba(245, 158, 11, 0.45)' : '1px solid transparent',
                             outline: 'none',
                             borderRadius: 8,
                             padding: '10px 14px',
                             color: '#d1d7db',
                             fontSize: 13.5,
                             fontFamily: FONT,
+                            transition: 'all 0.15s ease',
                           }}
                         />
 
@@ -2161,9 +2281,13 @@ export default function App() {
                             width: 38,
                             height: 38,
                             borderRadius: '50%',
-                            background: 'transparent',
-                            border: whatsappMessageDraft.trim() ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(255,255,255,0.1)',
-                            color: whatsappMessageDraft.trim() ? '#ffffff' : '#8696a0',
+                            background: whatsappEphemeralMode && whatsappMessageDraft.trim() ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
+                            border: whatsappMessageDraft.trim()
+                              ? (whatsappEphemeralMode ? '1px solid rgba(245, 158, 11, 0.6)' : '1px solid rgba(255,255,255,0.3)')
+                              : '1px solid rgba(255,255,255,0.1)',
+                            color: whatsappMessageDraft.trim()
+                              ? (whatsappEphemeralMode ? '#fbbf24' : '#ffffff')
+                              : '#8696a0',
                             cursor: whatsappMessageDraft.trim() ? 'pointer' : 'default',
                             display: 'flex',
                             alignItems: 'center',
@@ -2171,9 +2295,15 @@ export default function App() {
                             transition: 'all 0.15s',
                             flexShrink: 0,
                           }}
-                          onMouseEnter={(e) => { if (whatsappMessageDraft.trim()) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                          title="Enviar mensagem"
+                          onMouseEnter={(e) => {
+                            if (whatsappMessageDraft.trim()) {
+                              e.currentTarget.style.background = whatsappEphemeralMode ? 'rgba(245, 158, 11, 0.3)' : 'rgba(255,255,255,0.1)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = whatsappEphemeralMode && whatsappMessageDraft.trim() ? 'rgba(245, 158, 11, 0.2)' : 'transparent';
+                          }}
+                          title={whatsappEphemeralMode ? 'Enviar mensagem efêmera' : 'Enviar mensagem'}
                         >
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
