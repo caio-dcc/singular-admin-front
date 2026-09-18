@@ -656,6 +656,7 @@ export default function App() {
       window.removeEventListener('resize', handleResize);
       if (bgResizeRef.current) window.removeEventListener('resize', bgResizeRef.current);
       if (bgRafRef.current) cancelAnimationFrame(bgRafRef.current);
+      bgRafRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1024,7 +1025,7 @@ export default function App() {
           </header>
 
           <nav style={s(`position:fixed;top:64px;bottom:0;left:0;width:260px;z-index:30;background:${th.surfaceBg};border-right:1px solid ${th.surfaceBorder};padding:20px 14px 14px;box-sizing:border-box;transform:${sidebarTransform};transition:transform 0.25s ease;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden`)}>
-            <div style={s('flex:1;min-height:0;overflow-y:auto;margin-bottom:12px;padding-right:2px')}>
+            <div className="hide-scrollbar" style={s('flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;margin-bottom:12px;padding-right:2px')}>
               <div style={s(`color:${th.surfaceMuted};font-size:11px;letter-spacing:0.12em;font-weight:600;padding:0 10px 10px`)}>{appT.navLabel}</div>
               {navUsers.map((u) => (
                 <button
@@ -1047,11 +1048,11 @@ export default function App() {
                     style={s(`width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:8px 12px;border-radius:8px;background:transparent;color:${th.surfaceText};border:1px solid ${th.surfaceBorder};font-family:${FONT};font-size:12.5px;font-weight:600;cursor:pointer;transition:all 0.18s ease`)}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = th.hoverBg;
-                      e.currentTarget.style.border = '1px solid rgba(255,255,255,0.25)';
+                      e.currentTarget.style.borderColor = th.accent;
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.border = `1px solid ${th.surfaceBorder}`;
+                      e.currentTarget.style.borderColor = th.surfaceBorder;
                     }}
                   >
                     <span>Conect Me</span>
@@ -1077,8 +1078,8 @@ export default function App() {
                     onClick={openWhatsappChat}
                     style={s(`flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 10px;border-radius:8px;background:transparent;color:${th.surfaceText};border:1px solid ${th.surfaceBorder};font-family:${FONT};font-size:11.5px;font-weight:600;cursor:pointer;transition:all 0.15s ease`)}
                     title="Abrir Chat"
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.25)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.border = `1px solid ${th.surfaceBorder}`; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = th.hoverBg; e.currentTarget.style.borderColor = th.accent; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = th.surfaceBorder; }}
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -1139,7 +1140,7 @@ export default function App() {
                     )}
                   </button>
 
-                  <button onClick={() => setState((s2) => ({ videoModalOpen: !s2.videoModalOpen }))} title={videoModalOpen ? 'Fechar vídeo' : 'Expandir vídeo'} style={s(`background:${videoModalOpen ? '#2a8c97' : 'rgba(255,255,255,0.08)'};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${videoModalOpen ? '#fff' : 'rgba(255,255,255,0.85)'};cursor:pointer;transition:all 0.15s`)}>
+                  <button onClick={() => setState((s2) => ({ videoModalOpen: !s2.videoModalOpen }))} title={videoModalOpen ? 'Fechar vídeo' : 'Expandir vídeo'} style={s(`background:${videoModalOpen ? '#2a8c97' : th.toolbarBtnBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${videoModalOpen ? '#fff' : th.surfaceText};cursor:pointer;transition:all 0.15s`)}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline>
                       <line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line>
