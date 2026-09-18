@@ -76,6 +76,8 @@ export const PLAYLISTS_SEED = [
 
 export const APP_STRINGS = {
   pt: {
+    navHomeLabel: 'Início',
+    navInternalChat: 'Chat Interno',
     navLabel: 'Equipe',
     viewKanban: 'Kanban',
     viewTable: 'Tabela',
@@ -124,6 +126,8 @@ export const APP_STRINGS = {
     whatsappSimulateReply: 'Simular Resposta',
   },
   en: {
+    navHomeLabel: 'Home',
+    navInternalChat: 'Internal Chat',
     navLabel: 'Team',
     viewKanban: 'Kanban',
     viewTable: 'Table',

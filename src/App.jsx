@@ -542,8 +542,13 @@ export default function App() {
   }
 
   function openWhatsappChat() {
+    try {
+      localStorage.setItem('singular_whatsapp_connected', 'true');
+    } catch (e) {}
     setState((s2) => ({
+      whatsappConnected: true,
       whatsappChatModalOpen: true,
+      mobileSidebarOpen: false,
       whatsappChats: (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
         ? s2.whatsappChats
         : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] })),
@@ -1026,7 +1031,36 @@ export default function App() {
 
           <nav style={s(`position:fixed;top:64px;bottom:0;left:0;width:260px;z-index:30;background:${th.surfaceBg};border-right:1px solid ${th.surfaceBorder};padding:20px 14px 14px;box-sizing:border-box;transform:${sidebarTransform};transition:transform 0.25s ease;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden`)}>
             <div className="hide-scrollbar" style={s('flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;margin-bottom:12px;padding-right:2px')}>
-              <div style={s(`color:${th.surfaceMuted};font-size:11px;letter-spacing:0.12em;font-weight:600;padding:0 10px 10px`)}>{appT.navLabel}</div>
+              {/* Início Section */}
+              <div style={s(`color:${th.surfaceMuted};font-size:11px;letter-spacing:0.12em;font-weight:600;padding:0 10px 8px`)}>{appT.navHomeLabel || 'Início'}</div>
+              <button
+                onClick={openWhatsappChat}
+                style={s(`width:100%;display:flex;align-items:center;gap:12px;padding:10px 12px;border:none;border-radius:8px;cursor:pointer;margin-bottom:16px;background:${whatsappChatModalOpen ? activeBg : 'transparent'};color:${whatsappChatModalOpen ? '#fff' : th.surfaceText};font-family:${FONT};font-size:14px;text-align:left;transition:background 0.2s ease, color 0.2s ease, transform 0.2s ease;transform:${whatsappChatModalOpen ? 'translateX(4px)' : 'translateX(0)'}`)}
+                onMouseEnter={(e) => {
+                  if (!whatsappChatModalOpen) {
+                    e.currentTarget.style.background = th.hoverBg;
+                    e.currentTarget.style.transform = 'translateX(4px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!whatsappChatModalOpen) {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                  }
+                }}
+              >
+                <span style={s(`width:26px;height:26px;border-radius:50%;background:#2a8c97;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;flex-shrink:0;transition:transform 0.2s ease;transform:${whatsappChatModalOpen ? 'scale(1.08)' : 'scale(1)'}`)}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                </span>
+                <span style={{ fontWeight: whatsappChatModalOpen ? '600' : '400', transition: 'font-weight 0.2s ease' }}>
+                  {appT.navInternalChat || 'Chat Interno'}
+                </span>
+              </button>
+
+              {/* Equipe Section */}
+              <div style={s(`color:${th.surfaceMuted};font-size:11px;letter-spacing:0.12em;font-weight:600;padding:0 10px 8px`)}>{appT.navLabel}</div>
               {navUsers.map((u) => (
                 <button
                   key={u.id}
