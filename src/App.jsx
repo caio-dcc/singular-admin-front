@@ -1,19 +1,50 @@
 import { useEffect, useRef, useState } from 'react';
+import {
+  Zap,
+  Target,
+  Users,
+  Inbox,
+  Sparkles,
+  FileText,
+  Handshake,
+  User,
+  DollarSign,
+  Clock,
+  MapPin,
+  Phone,
+  Mail,
+  Trash2,
+  CheckCircle2,
+  Eye,
+  Lock,
+  Timer,
+  ArrowRight,
+  Pencil,
+  Plus,
+  ListMusic,
+  Play,
+  Pause,
+  Check,
+  X,
+  Send,
+  MessageSquare,
+  Camera,
+  Upload,
+} from 'lucide-react';
 import { s } from './style';
 import Hoverable from './Hoverable';
+import { supabase } from './supabaseClient';
 import {
   STRINGS,
   APP_STRINGS,
   USERS,
   STATUS_DEFS,
-  TASKS_SEED,
-  SONGS_SEED,
-  PLAYLISTS_SEED,
   WHATSAPP_CHATS_SEED,
   extractYouTubeId,
   THEMES,
 } from './data';
 import { api } from './api';
+import CustomSelect from './CustomSelect';
 
 const FONT = "'Domine', serif";
 
@@ -114,6 +145,136 @@ function QRCodeSVG({ data, size = 200 }) {
   );
 }
 
+function AnimatedModal({
+  isOpen,
+  onClose,
+  zIndex = 50,
+  overlayBg,
+  backdropStyle = {},
+  contentStyle = {},
+  children,
+}) {
+  const [rendered, setRendered] = useState(Boolean(isOpen));
+  const [closing, setClosing] = useState(false);
+  const childrenRef = useRef(children);
+
+  if (isOpen && children) {
+    childrenRef.current = children;
+  }
+
+  useEffect(() => {
+    if (isOpen) {
+      setRendered(true);
+      setClosing(false);
+      return;
+    }
+    if (!rendered) return;
+    setClosing(true);
+    const timer = setTimeout(() => {
+      setRendered(false);
+      setClosing(false);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [isOpen]);
+
+  if (!rendered && !isOpen) return null;
+
+  const handleBackdropClick = (e) => {
+    if (e.target === e.currentTarget) {
+      if (closing) return;
+      if (onClose) onClose();
+    }
+  };
+
+  const currentChildren = isOpen ? children : childrenRef.current;
+
+  return (
+    <div
+      onClick={handleBackdropClick}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: overlayBg || 'rgba(0, 0, 0, 0.72)',
+        zIndex,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+        boxSizing: 'border-box',
+        pointerEvents: closing ? 'none' : 'auto',
+        animation: closing
+          ? 'modalFadeOut 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+          : 'modalFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        ...backdropStyle,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          ...contentStyle,
+          animation: closing
+            ? 'modalZoomOut 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+            : 'modalZoomIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        }}
+      >
+        {typeof currentChildren === 'function' ? currentChildren() : currentChildren}
+      </div>
+    </div>
+  );
+}
+
+function UserAvatar({ user, size = 30, fontSize = 11, style = {}, title = '' }) {
+  if (!user) return null;
+  const avatarUrl = user.avatarUrl || user.userAvatarUrl;
+  const initials = user.initials || user.userInitials || (user.name ? user.name.slice(0, 2).toUpperCase() : 'AL');
+  const avatarBg = user.avatarBg || user.userAvatarBg || '#2a8c97';
+  const name = title || user.name || user.userName || '';
+
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        title={name}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          objectFit: 'cover',
+          flexShrink: 0,
+          boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+          border: '1px solid rgba(255,255,255,0.18)',
+          display: 'block',
+          ...style,
+        }}
+      />
+    );
+  }
+
+  return (
+    <span
+      title={name}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: avatarBg,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#fff',
+        fontSize: fontSize,
+        fontWeight: 700,
+        flexShrink: 0,
+        boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+        ...style,
+      }}
+    >
+      {initials}
+    </span>
+  );
+}
+
 const initialState = {
   login: '',
   password: '',
@@ -129,15 +290,32 @@ const initialState = {
   contentTransform: 'translateY(0)',
   contentTransition: 'opacity 0.22s ease, transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
   mainTheme: 'dark',
-  boardView: 'kanban',
+  boardView: (() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('singular_board_view') : null;
+      return saved === 'kanban' || saved === 'table' ? saved : 'kanban';
+    } catch (e) {
+      return 'kanban';
+    }
+  })(),
   userMenuOpen: false,
   userMenuMounted: false,
   userMenuClosing: false,
   settingsModalOpen: false,
   logoutModalOpen: false,
   notifications: true,
-  users: USERS.map((u) => ({ ...u })),
-  tasks: TASKS_SEED.map((t) => ({ ...t })),
+  users: USERS.map((u) => {
+    if (u.id === 'caio-marques') {
+      try {
+        const saved = typeof window !== 'undefined' ? localStorage.getItem('singular_user_avatar') : null;
+        if (saved) return { ...u, avatarUrl: saved };
+      } catch (e) {}
+    }
+    return { ...u };
+  }),
+  tasks: [],
+  feed: [],
+  contacts: [],
   detailsTaskId: null,
   actionTaskId: null,
   searchQuery: '',
@@ -145,12 +323,25 @@ const initialState = {
   filterDateFrom: '',
   filterDateTo: '',
   draftTitulo: '',
+  draftProjeto: '',
+  draftTarefa: '',
+  draftDetalhes: '',
   draftPrazo: '',
   draftStatus: '',
   draftUserId: '',
   draftConcluida: false,
-  songs: SONGS_SEED.map((sg) => ({ ...sg })),
-  playlists: PLAYLISTS_SEED.map((p) => ({ ...p, songIds: [...p.songIds] })),
+  // New Task Form State
+  newTaskModalOpen: false,
+  newTaskTitulo: '',
+  newTaskProjeto: '',
+  newTaskTarefa: '',
+  newTaskDetalhes: '',
+  newTaskPrazo: '',
+  newTaskCriadoEm: '',
+  newTaskStatus: 'backlog',
+  newTaskUserId: '',
+  songs: [],
+  playlists: [],
   redirectModalOpen: false,
   addFormOpen: false,
   redirectSearch: '',
@@ -158,6 +349,8 @@ const initialState = {
   newTitulo: '',
   newLink: '',
   newAddedBy: '',
+  editingSongId: null,
+  editSongTitle: '',
   currentSongId: null,
   currentPlaylistId: null,
   isPlaying: false,
@@ -169,6 +362,10 @@ const initialState = {
   isMuted: false,
   volumeHover: false,
   playlistModalOpen: false,
+  playlistFormMode: null, // null | 'create' | 'edit'
+  editingPlaylistId: null,
+  editPlaylistName: '',
+  editPlaylistSongIds: [],
   newPlaylistName: '',
   newPlaylistSongIds: [],
   toasts: [],
@@ -177,7 +374,8 @@ const initialState = {
   whatsappChatModalOpen: false,
   whatsappQrLoading: false,
   whatsappQrData: '',
-  whatsappChats: WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] })),
+  whatsappChats: WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [] })),
+  whatsappChatDbId: null,
   whatsappActiveChatId: 'general',
   whatsappMessageDraft: '',
   whatsappEphemeralMode: false,
@@ -185,6 +383,27 @@ const initialState = {
   whatsappFilter: 'all',
   whatsappEmojiPickerOpen: false,
   wahaServerUrl: 'http://localhost:3000',
+  // New Lead / Contact Form State
+  newContactModalOpen: false,
+  contactModalLead: null,
+  newContactNome: '',
+  newContactEmpresa: '',
+  newContactEmail: '',
+  newContactTelefone: '',
+  newContactTipo: '',
+  newContactOrcamento: '',
+  newContactPrazo: '',
+  newContactDescricao: '',
+  newContactOrigem: 'LP Institucional',
+  contactFilterStatus: 'todos',
+  contactSearch: '',
+  // Feed Filters & Comments
+  feedFilterProject: '',
+  feedFilterUser: '',
+  feedSearch: '',
+  feedCommentDrafts: {},
+  // Name edit in settings
+  editDisplayName: '',
 };
 
 export default function App() {
@@ -202,18 +421,24 @@ export default function App() {
   const bgRafRef = useRef(null);
   const bgResizeRef = useRef(null);
   const toastIdRef = useRef(0);
+  const volumeLeaveTimerRef = useRef(null);
 
   const {
     login, password, showPassword, remember, lang, fadeOpacity, view, route, isMobile, mobileSidebarOpen,
     contentOpacity, contentTransform, contentTransition, mainTheme, boardView, userMenuOpen, userMenuMounted, userMenuClosing,
-    settingsModalOpen, logoutModalOpen, notifications, users, tasks, detailsTaskId, actionTaskId,
-    draftTitulo, draftPrazo, draftStatus, draftUserId, draftConcluida,
+    settingsModalOpen, logoutModalOpen, notifications, users, tasks, feed, contacts, detailsTaskId, actionTaskId,
+    draftTitulo, draftProjeto, draftTarefa, draftDetalhes, draftPrazo, draftStatus, draftUserId, draftConcluida,
     searchQuery, filterProjeto, filterDateFrom, filterDateTo,
+    newTaskModalOpen, newTaskTitulo, newTaskProjeto, newTaskTarefa, newTaskDetalhes, newTaskPrazo, newTaskCriadoEm, newTaskStatus, newTaskUserId,
     songs, playlists, redirectModalOpen, addFormOpen, redirectSearch, redirectPage,
-    newTitulo, newLink, newAddedBy, currentSongId, currentPlaylistId, isPlaying, repeat, shuffle,
-    videoModalOpen, playerUnavailable, volume, isMuted, volumeHover, playlistModalOpen, newPlaylistName, newPlaylistSongIds, toasts,
+    newTitulo, newLink, newAddedBy, editingSongId, editSongTitle, currentSongId, currentPlaylistId, isPlaying, repeat, shuffle,
+    videoModalOpen, playerUnavailable, volume, isMuted, volumeHover, playlistModalOpen,
+    playlistFormMode, editingPlaylistId, editPlaylistName, editPlaylistSongIds, newPlaylistName, newPlaylistSongIds, toasts,
     whatsappConnected, whatsappQrModalOpen, whatsappChatModalOpen, whatsappQrLoading, whatsappQrData,
-    whatsappChats, whatsappActiveChatId, whatsappMessageDraft, whatsappEphemeralMode, whatsappSearch, whatsappFilter, whatsappEmojiPickerOpen, wahaServerUrl,
+    whatsappChats, whatsappChatDbId, whatsappActiveChatId, whatsappMessageDraft, whatsappEphemeralMode, whatsappSearch, whatsappFilter, whatsappEmojiPickerOpen, wahaServerUrl,
+    newContactModalOpen, contactModalLead, newContactNome, newContactEmpresa, newContactEmail, newContactTelefone,
+    newContactTipo, newContactOrcamento, newContactPrazo, newContactDescricao, newContactOrigem, contactFilterStatus, contactSearch,
+    feedFilterProject, feedFilterUser, feedSearch, feedCommentDrafts, editDisplayName,
   } = state;
 
   // ---------- helpers ----------
@@ -245,6 +470,39 @@ export default function App() {
       });
     } catch (e) {}
     setState({ logoutModalOpen: false, userMenuOpen: false, view: 'login', route: 'caio-marques', boardView: 'kanban' });
+  }
+
+  function navigateToRoute(targetRoute) {
+    if (route === targetRoute) {
+      if (isMobile) setState({ mobileSidebarOpen: false });
+      return;
+    }
+
+    setState({
+      contentOpacity: 0,
+      contentTransform: 'translateY(-16px)',
+      contentTransition: 'opacity 0.14s ease, transform 0.14s ease',
+    });
+
+    setTimeout(() => {
+      setState({
+        route: targetRoute,
+        mobileSidebarOpen: false,
+        contentOpacity: 0,
+        contentTransform: 'translateY(20px)',
+        contentTransition: 'none',
+      });
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setState({
+            contentOpacity: 1,
+            contentTransform: 'translateY(0)',
+            contentTransition: 'opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+          });
+        });
+      });
+    }, 140);
   }
 
   // ---------- pixel background animation (login screen) ----------
@@ -284,15 +542,13 @@ export default function App() {
 
   // ---------- YouTube player (mini player + video modal) ----------
   function markPlayerUnavailable() {
-    if (playerUnavailable) return;
-    clearTimeout(ytReadyTimeoutRef.current);
+    console.warn('YouTube player unavailable or hit an error.');
     ytPlayerRef.current = null;
-    setState({ playerUnavailable: true, isPlaying: false });
+    setState({ playerUnavailable: false, isPlaying: false });
   }
 
   function initYTPlayer() {
-    if (ytInitAttemptedRef.current || !document.getElementById('yt-player-mount')) return;
-    ytInitAttemptedRef.current = true;
+    if (ytPlayerRef.current || !document.getElementById('yt-player-mount') || !window.YT || !window.YT.Player) return;
     try {
       const savedVol = Number(localStorage.getItem('singular_player_volume'));
       const initialVol = !isNaN(savedVol) && savedVol !== null && savedVol >= 0 ? savedVol : 80;
@@ -307,15 +563,18 @@ export default function App() {
         },
         events: {
           onReady: () => {
-            clearTimeout(ytReadyTimeoutRef.current);
             ytReadyRef.current = true;
             try {
-              if (ytPlayerRef.current && ytPlayerRef.current.setVolume) {
+              if (ytPlayerRef.current && typeof ytPlayerRef.current.setVolume === 'function') {
                 ytPlayerRef.current.setVolume(initialVol);
               }
             } catch (err) {}
             if (pendingVideoIdRef.current) {
-              try { ytPlayerRef.current.loadVideoById(pendingVideoIdRef.current); } catch (e) { markPlayerUnavailable(); }
+              try {
+                if (typeof ytPlayerRef.current.loadVideoById === 'function') {
+                  ytPlayerRef.current.loadVideoById(pendingVideoIdRef.current);
+                }
+              } catch (e) {}
               pendingVideoIdRef.current = null;
             }
           },
@@ -325,19 +584,26 @@ export default function App() {
             if (e.data === window.YT.PlayerState.PLAYING) setState({ isPlaying: true });
             if (e.data === window.YT.PlayerState.PAUSED) setState({ isPlaying: false });
           },
-          onError: () => markPlayerUnavailable(),
+          onError: () => {
+            console.warn('YouTube Player error encountered.');
+          },
         },
       });
-      ytReadyTimeoutRef.current = setTimeout(() => { if (!ytReadyRef.current) markPlayerUnavailable(); }, 3000);
     } catch (e) {
-      markPlayerUnavailable();
+      console.warn('Error initializing YouTube Player:', e);
     }
   }
 
   function loadYTScript() {
-    if (window.YT && window.YT.Player) { initYTPlayer(); return; }
+    if (window.YT && window.YT.Player) {
+      initYTPlayer();
+      return;
+    }
     if (ytScriptLoadingRef.current) return;
     ytScriptLoadingRef.current = true;
+    window.onYouTubeIframeAPIReady = () => {
+      initYTPlayer();
+    };
     const scriptEl = document.createElement('script');
     scriptEl.src = 'https://www.youtube.com/iframe_api';
     document.head.appendChild(scriptEl);
@@ -347,10 +613,6 @@ export default function App() {
     opts = opts || {};
     const song = songs.find((sg) => sg.id === id);
     if (!song) return;
-    if (playerUnavailable) {
-      setState({ currentSongId: id, currentPlaylistId: opts.keepPlaylist ? currentPlaylistId : null });
-      return;
-    }
     setState({
       currentSongId: id,
       isPlaying: true,
@@ -358,15 +620,20 @@ export default function App() {
       currentPlaylistId: opts.keepPlaylist ? currentPlaylistId : null,
     });
     try {
-      if (ytPlayerRef.current && ytPlayerRef.current.loadVideoById) {
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
         ytPlayerRef.current.loadVideoById(song.videoId);
-        if (ytPlayerRef.current.setVolume) {
+        if (typeof ytPlayerRef.current.setVolume === 'function') {
           ytPlayerRef.current.setVolume(isMuted ? 0 : volume);
         }
       } else {
         pendingVideoIdRef.current = song.videoId;
+        if (!ytPlayerRef.current) {
+          loadYTScript();
+        }
       }
-    } catch (e) { markPlayerUnavailable(); }
+    } catch (e) {
+      console.warn('Error loading song in YT player:', e);
+    }
   }
 
   function getQueue() {
@@ -391,11 +658,37 @@ export default function App() {
   }
 
   function togglePlay() {
-    if (!ytPlayerRef.current || playerUnavailable) return;
-    try {
-      if (isPlaying) ytPlayerRef.current.pauseVideo();
-      else ytPlayerRef.current.playVideo();
-    } catch (e) { markPlayerUnavailable(); }
+    if (isPlaying) {
+      // Pause immediately in React state
+      setState({ isPlaying: false });
+      try {
+        if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
+          ytPlayerRef.current.pauseVideo();
+        }
+      } catch (e) {
+        console.warn('Error pausing video:', e);
+      }
+    } else {
+      // Play immediately in React state
+      const targetSongId = currentSongId || (songs[0] ? songs[0].id : null);
+      if (!targetSongId) return;
+
+      if (!currentSongId) {
+        loadSong(targetSongId);
+      } else {
+        setState({ isPlaying: true });
+        try {
+          if (ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
+            ytPlayerRef.current.playVideo();
+          } else {
+            loadSong(currentSongId);
+          }
+        } catch (e) {
+          console.warn('Error playing video:', e);
+          loadSong(currentSongId);
+        }
+      }
+    }
   }
 
   function toggleRepeat() {
@@ -441,14 +734,177 @@ export default function App() {
     }
   }
 
-  // ---------- task CRUD (optimistic local update + persist to the Node backend) ----------
+  function handleVolumeMouseEnter() {
+    if (volumeLeaveTimerRef.current) {
+      clearTimeout(volumeLeaveTimerRef.current);
+      volumeLeaveTimerRef.current = null;
+    }
+    setState({ volumeHover: true });
+  }
+
+  function handleVolumeMouseLeave() {
+    if (volumeLeaveTimerRef.current) clearTimeout(volumeLeaveTimerRef.current);
+    volumeLeaveTimerRef.current = setTimeout(() => {
+      setState({ volumeHover: false });
+    }, 280);
+  }
+
+  // ---------- task CRUD & Feed generation ----------
+  function openNewTaskModal(defaultStatus = 'backlog', defaultProject = '') {
+    const todayIso = new Date().toISOString().split('T')[0];
+    const targetUserId = isUserRoute ? route : (myUserAccount.id || 'caio-marques');
+    setState({
+      newTaskModalOpen: true,
+      newTaskTitulo: '',
+      newTaskProjeto: defaultProject || filterProjeto || '',
+      newTaskTarefa: 'Desenvolvimento',
+      newTaskDetalhes: '',
+      newTaskPrazo: '',
+      newTaskCriadoEm: todayIso,
+      newTaskStatus: defaultStatus || 'backlog',
+      newTaskUserId: targetUserId,
+    });
+  }
+
+  function formatToBRDate(dateStr) {
+    if (!dateStr) return null;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) return dateStr;
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const [y, m, d] = parts;
+      return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+    }
+    return dateStr;
+  }
+
+  function submitNewTask() {
+    const tit = (newTaskTitulo || '').trim();
+    if (!tit) {
+      addToast({ title: 'Título obrigatório', message: 'Digite o título da tarefa.', accent: '#f59e0b' });
+      return;
+    }
+    const proj = (newTaskProjeto || '').trim() || 'Geral';
+    const tar = (newTaskTarefa || '').trim() || 'Desenvolvimento';
+    const det = (newTaskDetalhes || '').trim();
+    const st = newTaskStatus || 'backlog';
+    const assignedUserId = newTaskUserId || (isUserRoute ? route : (myUserAccount.id || 'caio-marques'));
+
+    const todayBR = new Date().toLocaleDateString('pt-BR');
+    const createdBR = newTaskCriadoEm ? formatToBRDate(newTaskCriadoEm) : todayBR;
+    const prazoBR = newTaskPrazo ? formatToBRDate(newTaskPrazo) : null;
+
+    const newTask = {
+      id: 't' + Date.now(),
+      userId: assignedUserId,
+      titulo: tit,
+      projeto: proj,
+      tarefa: tar,
+      detalhes: det,
+      status: st,
+      concluida: false,
+      prazo: prazoBR,
+      criadoEm: createdBR,
+    };
+
+    const now = new Date();
+    const timeStr = 'Hoje às ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const feedItem = {
+      id: 'f' + Date.now(),
+      userId: myUserAccount.id || 'caio-marques',
+      userName: myUserAccount.name || 'Alderson',
+      userAvatarBg: myUserAccount.avatarBg || '#2a8c97',
+      userInitials: myUserAccount.initials || 'AL',
+      userAvatarUrl: myUserAccount.avatarUrl || null,
+      tipo: 'created',
+      taskId: newTask.id,
+      taskTitle: newTask.titulo,
+      projeto: newTask.projeto,
+      deStatus: null,
+      paraStatus: newTask.status,
+      data: timeStr,
+      timestamp: Date.now(),
+      comentarios: [],
+    };
+
+    setState((s2) => ({
+      tasks: [newTask, ...s2.tasks],
+      feed: [feedItem, ...s2.feed],
+      newTaskModalOpen: false,
+      newTaskTitulo: '',
+      newTaskProjeto: '',
+      newTaskTarefa: '',
+      newTaskDetalhes: '',
+      newTaskPrazo: '',
+      newTaskCriadoEm: '',
+      newTaskStatus: 'backlog',
+      newTaskUserId: '',
+    }));
+
+    api
+      .addTask(newTask)
+      .then((saved) => {
+        if (saved && saved.id) {
+          setState((s2) => ({
+            tasks: s2.tasks.map((tk) => (tk.id === newTask.id ? { ...tk, id: saved.id } : tk)),
+          }));
+        }
+      })
+      .catch(() => console.warn('Backend unreachable — task created locally only.'));
+
+    api.addFeedItem(feedItem).catch(() => {});
+    addToast({ title: 'Tarefa criada', message: `"${newTask.titulo}" foi adicionada ao quadro.`, accent: '#3fd67a' });
+  }
+
   function saveTask() {
     const id = actionTaskId;
-    const patch = { titulo: draftTitulo, prazo: draftPrazo || null, status: draftStatus, userId: draftUserId, concluida: draftConcluida };
-    setState((s2) => ({
-      tasks: s2.tasks.map((tk) => (tk.id === id ? { ...tk, ...patch } : tk)),
-      actionTaskId: null,
-    }));
+    const oldTask = tasks.find((tk) => tk.id === id);
+    const patch = {
+      titulo: draftTitulo,
+      projeto: draftProjeto || (oldTask ? oldTask.projeto : 'Geral'),
+      tarefa: draftTarefa || (oldTask ? oldTask.tarefa : 'Desenvolvimento'),
+      detalhes: draftDetalhes || '',
+      prazo: draftPrazo || null,
+      status: draftStatus,
+      userId: draftUserId,
+      concluida: draftConcluida,
+    };
+
+    setState((s2) => {
+      const updatedTasks = s2.tasks.map((tk) => (tk.id === id ? { ...tk, ...patch } : tk));
+
+      // Check if status changed or task was marked done to record in Feed
+      let updatedFeed = s2.feed;
+      if (oldTask && (oldTask.status !== draftStatus || oldTask.concluida !== draftConcluida)) {
+        const actingUser = s2.users.find((u) => u.id === (draftUserId || oldTask.userId)) || s2.users[0];
+        const now = new Date();
+        const timeStr = 'Hoje às ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+        const feedItem = {
+          id: 'f' + Date.now(),
+          userId: actingUser.id,
+          userName: actingUser.name,
+          userAvatarBg: actingUser.avatarBg,
+          userInitials: actingUser.initials,
+          userAvatarUrl: actingUser.avatarUrl || null,
+          tipo: draftConcluida ? 'completed' : 'stage_change',
+          taskId: id,
+          taskTitle: draftTitulo,
+          projeto: patch.projeto,
+          deStatus: oldTask.status,
+          paraStatus: draftStatus,
+          data: timeStr,
+          timestamp: Date.now(),
+        };
+        updatedFeed = [feedItem, ...s2.feed];
+        api.addFeedItem(feedItem).catch(() => {});
+      }
+
+      return {
+        tasks: updatedTasks,
+        feed: updatedFeed,
+        actionTaskId: null,
+      };
+    });
+
     api.updateTask(id, patch).catch(() => console.warn('Backend unreachable — task updated locally only.'));
     addToast({ title: appT.updateToastTitle, message: appT.updateToastMsg, accent: '#3fd67a' });
   }
@@ -462,21 +918,283 @@ export default function App() {
 
   function reactivateTask() {
     const id = detailsTaskId;
-    setState((s2) => ({ tasks: s2.tasks.map((tk) => (tk.id === id ? { ...tk, concluida: false } : tk)), detailsTaskId: null }));
+    const taskObj = tasks.find((tk) => tk.id === id);
+    setState((s2) => {
+      const updatedTasks = s2.tasks.map((tk) => (tk.id === id ? { ...tk, concluida: false } : tk));
+      let updatedFeed = s2.feed;
+      if (taskObj) {
+        const actingUser = s2.users.find((u) => u.id === taskObj.userId) || s2.users[0];
+        const now = new Date();
+        const timeStr = 'Hoje às ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+        const feedItem = {
+          id: 'f' + Date.now(),
+          userId: actingUser.id,
+          userName: actingUser.name,
+          userAvatarBg: actingUser.avatarBg,
+          userInitials: actingUser.initials,
+          userAvatarUrl: actingUser.avatarUrl || null,
+          tipo: 'stage_change',
+          taskId: id,
+          taskTitle: taskObj.titulo,
+          projeto: taskObj.projeto,
+          deStatus: 'commit',
+          paraStatus: taskObj.status || 'dev',
+          data: timeStr,
+          timestamp: Date.now(),
+        };
+        updatedFeed = [feedItem, ...s2.feed];
+        api.addFeedItem(feedItem).catch(() => {});
+      }
+      return { tasks: updatedTasks, feed: updatedFeed, detailsTaskId: null };
+    });
     api.updateTask(id, { concluida: false }).catch(() => console.warn('Backend unreachable — task updated locally only.'));
     addToast({ title: appT.reactivateToastTitle, message: appT.reactivateToastMsg, accent: '#3fd67a' });
   }
 
+  // ---------- User Display Name Update ----------
+  function handleSaveDisplayName() {
+    const trimmed = (editDisplayName || '').trim();
+    if (!trimmed) return;
+    const targetUserId = 'caio-marques';
+    const initials = trimmed
+      .split(' ')
+      .filter(Boolean)
+      .map((w) => w[0].toUpperCase())
+      .slice(0, 2)
+      .join('') || trimmed.slice(0, 2).toUpperCase();
+
+    setState((s2) => ({
+      users: s2.users.map((u) => (u.id === targetUserId ? { ...u, name: trimmed, initials } : u)),
+    }));
+
+    api.updateUser(targetUserId, { name: trimmed, initials }).catch(() => {});
+    addToast({ title: appT.settingsNameUpdated || 'Nome atualizado', message: `Seu nome no sistema agora é ${trimmed}.`, accent: '#4fd1de' });
+  }
+
+  function handleAvatarUpload(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      addToast({ title: 'Formato inválido', message: 'Selecione um arquivo de imagem válido (PNG, JPG, WebP).', accent: '#e5847c' });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      addToast({ title: 'Imagem muito grande', message: 'A imagem deve ter no máximo 5MB.', accent: '#f59e0b' });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target.result;
+      const targetUserId = 'caio-marques';
+
+      setState((s2) => {
+        const nextUsers = s2.users.map((u) => (u.id === targetUserId ? { ...u, avatarUrl: dataUrl } : u));
+        const nextFeed = s2.feed.map((f) => {
+          const updatedComments = (f.comentarios || []).map((c) =>
+            c.userId === targetUserId ? { ...c, userAvatarUrl: dataUrl } : c
+          );
+          if (f.userId === targetUserId) {
+            return { ...f, userAvatarUrl: dataUrl, comentarios: updatedComments };
+          }
+          return { ...f, comentarios: updatedComments };
+        });
+        try {
+          localStorage.setItem('singular_user_avatar', dataUrl);
+        } catch (err) {}
+        return { users: nextUsers, feed: nextFeed };
+      });
+
+      api.updateUser(targetUserId, { avatarUrl: dataUrl }).catch(() => {});
+      addToast({ title: 'Foto de perfil atualizada', message: 'Sua foto foi definida com sucesso.', accent: '#3fd67a' });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  function handleRemoveAvatar() {
+    const targetUserId = 'caio-marques';
+    setState((s2) => {
+      const nextUsers = s2.users.map((u) => (u.id === targetUserId ? { ...u, avatarUrl: null } : u));
+      const nextFeed = s2.feed.map((f) => {
+        const updatedComments = (f.comentarios || []).map((c) =>
+          c.userId === targetUserId ? { ...c, userAvatarUrl: null } : c
+        );
+        if (f.userId === targetUserId) {
+          return { ...f, userAvatarUrl: null, comentarios: updatedComments };
+        }
+        return { ...f, comentarios: updatedComments };
+      });
+      try {
+        localStorage.removeItem('singular_user_avatar');
+      } catch (err) {}
+      return { users: nextUsers, feed: nextFeed };
+    });
+    api.updateUser(targetUserId, { avatarUrl: null }).catch(() => {});
+    addToast({ title: 'Foto removida', message: 'O ícone com suas iniciais voltou a ser exibido.', accent: '#4fd1de' });
+  }
+
+  // ---------- Contatos / LP Leads CRUD ----------
+  function submitNewContact() {
+    if (!newContactNome.trim() || !newContactEmpresa.trim()) {
+      addToast({ title: 'Campos incompletos', message: 'Preencha ao menos Nome e Empresa.', accent: '#f59e0b' });
+      return;
+    }
+    const newContact = {
+      id: 'c' + Date.now(),
+      nome: newContactNome.trim(),
+      empresa: newContactEmpresa.trim(),
+      email: newContactEmail.trim() || 'contato@empresa.com.br',
+      telefone: newContactTelefone.trim() || '+55 (11) 99999-9999',
+      tipoSistema: newContactTipo.trim() || 'Sistema Web Customizado',
+      orcamento: newContactOrcamento.trim() || 'A combinar',
+      prazo: newContactPrazo.trim() || '30 a 60 dias',
+      descricao: newContactDescricao.trim() || 'Solicitação de software recebida via Landing Page institucional.',
+      status: 'novo',
+      criadoEm: new Date().toLocaleDateString('pt-BR'),
+      origem: newContactOrigem.trim() || 'LP Institucional',
+    };
+
+    setState((s2) => ({
+      contacts: [newContact, ...s2.contacts],
+      newContactModalOpen: false,
+      newContactNome: '',
+      newContactEmpresa: '',
+      newContactEmail: '',
+      newContactTelefone: '',
+      newContactTipo: '',
+      newContactOrcamento: '',
+      newContactPrazo: '',
+      newContactDescricao: '',
+      newContactOrigem: 'LP Institucional',
+    }));
+
+    api.addContact(newContact).catch(() => {});
+    addToast({ title: 'Lead Cadastrado', message: `Solicitação da ${newContact.empresa} adicionada com sucesso.`, accent: '#3fd67a' });
+  }
+
+  function updateContactStatus(contactId, nextStatus) {
+    setState((s2) => ({
+      contacts: s2.contacts.map((c) => (c.id === contactId ? { ...c, status: nextStatus } : c)),
+      contactModalLead: s2.contactModalLead?.id === contactId ? { ...s2.contactModalLead, status: nextStatus } : s2.contactModalLead,
+    }));
+    api.updateContact(contactId, { status: nextStatus }).catch(() => {});
+    addToast({ title: 'Status Atualizado', message: 'O status do lead foi modificado.', accent: '#4fd1de' });
+  }
+
+  function deleteContactLead(contactId) {
+    setState((s2) => ({
+      contacts: s2.contacts.filter((c) => c.id !== contactId),
+      contactModalLead: s2.contactModalLead?.id === contactId ? null : s2.contactModalLead,
+    }));
+    api.deleteContact(contactId).catch(() => {});
+    addToast({ title: 'Lead Excluído', message: 'O contato foi removido do sistema.', accent: '#e5847c' });
+  }
+
+  // ---------- Feed Comments ----------
+  function submitFeedComment(feedId) {
+    const draft = (feedCommentDrafts[feedId] || '').trim();
+    if (!draft) return;
+
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const timeFormatted = `Hoje às ${hours}:${minutes}`;
+
+    const newComment = {
+      id: 'fc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      userId: myUserAccount.id || 'caio-marques',
+      userName: myUserAccount.name || 'Alderson',
+      userAvatarBg: myUserAccount.avatarBg || '#2a8c97',
+      userInitials: myUserAccount.initials || 'AL',
+      userAvatarUrl: myUserAccount.avatarUrl || null,
+      texto: draft,
+      data: timeFormatted,
+      timestamp: Date.now(),
+    };
+
+    setState((s2) => {
+      const nextFeed = s2.feed.map((f) => {
+        if (f.id === feedId) {
+          return {
+            ...f,
+            comentarios: [...(f.comentarios || []), newComment],
+          };
+        }
+        return f;
+      });
+      return {
+        feed: nextFeed,
+        feedCommentDrafts: { ...s2.feedCommentDrafts, [feedId]: '' },
+      };
+    });
+
+    api.addFeedComment(feedId, newComment).catch(() => {});
+    addToast({ title: 'Comentário publicado', message: 'Seu comentário foi registrado no feed.', accent: '#3fd67a' });
+  }
+
+  function deleteFeedComment(feedId, commentId) {
+    setState((s2) => {
+      const nextFeed = s2.feed.map((f) => {
+        if (f.id === feedId) {
+          return {
+            ...f,
+            comentarios: (f.comentarios || []).filter((c) => c.id !== commentId),
+          };
+        }
+        return f;
+      });
+      return { feed: nextFeed };
+    });
+
+    api.deleteFeedComment(feedId, commentId).catch(() => {});
+    addToast({ title: 'Comentário excluído', message: 'O comentário foi removido.', accent: '#e5847c' });
+  }
+
   // ---------- redirect / songs / playlists ----------
   function submitNewSong() {
-    if (!newTitulo.trim() || !newLink.trim() || !newAddedBy.trim()) return;
-    const videoId = extractYouTubeId(newLink);
-    if (!videoId) return;
-    const song = { id: 's' + Date.now(), titulo: newTitulo.trim(), link: newLink.trim(), videoId, addedBy: newAddedBy.trim() };
-    setState((s2) => ({ songs: [...s2.songs, song], newTitulo: '', newLink: '', newAddedBy: '', addFormOpen: false }));
+    const tit = newTitulo.trim();
+    const lnk = newLink.trim();
+    const who = newAddedBy.trim() || myUserAccount.name || 'Alderson';
+
+    if (!tit) {
+      addToast({ title: 'Título obrigatório', message: 'Digite o nome da música ou faixa.', accent: '#f59e0b' });
+      return;
+    }
+    if (!lnk) {
+      addToast({ title: 'Link obrigatório', message: 'Cole o link do YouTube ou ID do vídeo.', accent: '#f59e0b' });
+      return;
+    }
+    const videoId = extractYouTubeId(lnk);
+    if (!videoId) {
+      addToast({ title: 'Link inválido', message: 'Informe um link válido do YouTube (ex: youtube.com/watch?v=...).', accent: '#e5847c' });
+      return;
+    }
+
+    const song = {
+      id: 's' + Date.now(),
+      titulo: tit,
+      link: lnk.startsWith('http') ? lnk : `https://www.youtube.com/watch?v=${videoId}`,
+      videoId,
+      addedBy: who,
+    };
+
+    setState((s2) => ({
+      songs: [song, ...s2.songs],
+      currentSongId: s2.currentSongId || song.id,
+      newTitulo: '',
+      newLink: '',
+      newAddedBy: '',
+      addFormOpen: false,
+    }));
+
     api
       .addSong({ titulo: song.titulo, link: song.link, videoId: song.videoId, addedBy: song.addedBy })
       .catch(() => console.warn('Backend unreachable — song added locally only.'));
+
+    addToast({ title: 'Música adicionada', message: `"${song.titulo}" foi adicionada com sucesso.`, accent: '#3fd67a' });
   }
 
   function deleteSong(id) {
@@ -498,24 +1216,146 @@ export default function App() {
     addToast({ title: 'Faixa excluída', message: 'A música foi removida da lista.', accent: '#e5847c' });
   }
 
-  function createPlaylist() {
-    if (!newPlaylistName.trim() || !newPlaylistSongIds.length) return;
-    const playlist = { id: 'p' + Date.now(), nome: newPlaylistName.trim(), songIds: [...newPlaylistSongIds] };
-    setState((s2) => ({ playlists: [...s2.playlists, playlist], newPlaylistName: '', newPlaylistSongIds: [] }));
-    api
-      .addPlaylist({ nome: playlist.nome, songIds: playlist.songIds })
-      .catch(() => console.warn('Backend unreachable — playlist created locally only.'));
+  function startEditSong(song) {
+    cancelPlaylistForm();
+    setState({
+      editingSongId: song.id,
+      editSongTitle: song.titulo,
+      addFormOpen: false,
+    });
+  }
+
+  function cancelEditSong() {
+    setState({ editingSongId: null, editSongTitle: '' });
+  }
+
+  function saveSongTitle(songId) {
+    const trimmed = (editSongTitle || '').trim();
+    if (!trimmed) {
+      addToast({ title: 'Título obrigatório', message: 'O nome da faixa não pode ficar vazio.', accent: '#f59e0b' });
+      return;
+    }
+    setState((s2) => ({
+      songs: s2.songs.map((s) => (s.id === songId ? { ...s, titulo: trimmed } : s)),
+      editingSongId: null,
+      editSongTitle: '',
+    }));
+    api.updateSong(songId, { titulo: trimmed }).catch(() => console.warn('Backend unreachable — song updated locally only.'));
+    addToast({ title: 'Faixa atualizada', message: `O nome foi alterado para "${trimmed}".`, accent: '#3fd67a' });
+  }
+
+  function startCreatePlaylist() {
+    setState({
+      playlistFormMode: 'create',
+      editingPlaylistId: null,
+      editPlaylistName: '',
+      editPlaylistSongIds: [],
+      newPlaylistName: '',
+      newPlaylistSongIds: songs.map((s) => s.id),
+    });
+  }
+
+  function startEditPlaylist(pl) {
+    setState({
+      playlistFormMode: 'edit',
+      editingPlaylistId: pl.id,
+      editPlaylistName: pl.nome,
+      editPlaylistSongIds: [...pl.songIds],
+      newPlaylistName: '',
+      newPlaylistSongIds: [],
+    });
+  }
+
+  function cancelPlaylistForm() {
+    setState({
+      playlistFormMode: null,
+      editingPlaylistId: null,
+      editPlaylistName: '',
+      editPlaylistSongIds: [],
+      newPlaylistName: '',
+      newPlaylistSongIds: [],
+    });
+  }
+
+  function savePlaylistChanges() {
+    if (playlistFormMode === 'create') {
+      const name = (newPlaylistName || '').trim();
+      if (!name) {
+        addToast({ title: 'Nome obrigatório', message: 'Digite um nome para a nova playlist.', accent: '#f59e0b' });
+        return;
+      }
+      if (!newPlaylistSongIds.length) {
+        addToast({ title: 'Nenhuma música', message: 'Selecione ao menos 1 música para a playlist.', accent: '#f59e0b' });
+        return;
+      }
+      const newPl = { id: 'p' + Date.now(), nome: name, songIds: [...newPlaylistSongIds] };
+      setState((s2) => ({
+        playlists: [...s2.playlists, newPl],
+        currentPlaylistId: newPl.id,
+        playlistFormMode: null,
+        newPlaylistName: '',
+        newPlaylistSongIds: [],
+      }));
+      api
+        .addPlaylist({ nome: newPl.nome, songIds: newPl.songIds })
+        .catch(() => console.warn('Backend unreachable — playlist created locally only.'));
+      addToast({ title: 'Playlist criada', message: `Playlist "${newPl.nome}" foi criada com sucesso.`, accent: '#3fd67a' });
+    } else if (playlistFormMode === 'edit') {
+      const name = (editPlaylistName || '').trim();
+      if (!name) {
+        addToast({ title: 'Nome obrigatório', message: 'Digite um nome para a playlist.', accent: '#f59e0b' });
+        return;
+      }
+      if (!editPlaylistSongIds.length) {
+        addToast({ title: 'Nenhuma música', message: 'Selecione ao menos 1 música para a playlist.', accent: '#f59e0b' });
+        return;
+      }
+      setState((s2) => {
+        const nextPlaylists = s2.playlists.map((pl) =>
+          pl.id === editingPlaylistId ? { ...pl, nome: name, songIds: [...editPlaylistSongIds] } : pl
+        );
+        return {
+          playlists: nextPlaylists,
+          playlistFormMode: null,
+          editingPlaylistId: null,
+          editPlaylistName: '',
+          editPlaylistSongIds: [],
+        };
+      });
+      api
+        .updatePlaylist(editingPlaylistId, { nome: name, songIds: editPlaylistSongIds })
+        .catch(() => console.warn('Backend unreachable — playlist updated locally only.'));
+      addToast({ title: 'Playlist atualizada', message: `Playlist "${name}" foi atualizada com sucesso.`, accent: '#3fd67a' });
+    }
+  }
+
+  function deletePlaylist(id) {
+    const pl = playlists.find((p) => p.id === id);
+    const plName = pl ? pl.nome : 'Playlist';
+    setState((s2) => ({
+      playlists: s2.playlists.filter((p) => p.id !== id),
+      currentPlaylistId: s2.currentPlaylistId === id ? null : s2.currentPlaylistId,
+      ...(s2.editingPlaylistId === id ? { playlistFormMode: null, editingPlaylistId: null } : {}),
+    }));
+    api.deletePlaylist(id).catch(() => console.warn('Backend unreachable — playlist deleted locally only.'));
+    addToast({ title: 'Playlist excluída', message: `A playlist "${plName}" foi removida.`, accent: '#e5847c' });
+  }
+
+  function toggleSongInPlaylist(playlistId, songId) {
+    setState((s2) => {
+      const pl = s2.playlists.find((p) => p.id === playlistId);
+      if (!pl) return {};
+      const exists = pl.songIds.includes(songId);
+      const nextSongIds = exists ? pl.songIds.filter((id) => id !== songId) : [...pl.songIds, songId];
+      const nextPlaylists = s2.playlists.map((p) => (p.id === playlistId ? { ...p, songIds: nextSongIds } : p));
+      api.updatePlaylist(playlistId, { nome: pl.nome, songIds: nextSongIds }).catch(() => {});
+      return { playlists: nextPlaylists };
+    });
   }
 
   // ---------- WhatsApp / WAHA ----------
   async function openWhatsappQR() {
-    setState((s2) => ({
-      whatsappQrModalOpen: true,
-      whatsappQrLoading: true,
-      whatsappChats: (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
-        ? s2.whatsappChats
-        : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] })),
-    }));
+    setState({ whatsappQrModalOpen: true, whatsappQrLoading: true });
     try {
       const res = await api.getWhatsappQR();
       setState({ whatsappQrData: res?.qr || '', whatsappQrLoading: false });
@@ -528,14 +1368,12 @@ export default function App() {
   }
 
   async function handleConnectWhatsapp(openChat = false) {
-    setState((s2) => ({
+    setState({
       whatsappConnected: true,
       whatsappQrModalOpen: false,
-      whatsappChats: (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
-        ? s2.whatsappChats
-        : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] })),
       ...(openChat ? { whatsappChatModalOpen: true } : {}),
-    }));
+    });
+    if (openChat) loadGeneralChat();
     try {
       localStorage.setItem('singular_whatsapp_connected', 'true');
       await api.connectWhatsapp().catch(() => {});
@@ -556,9 +1394,42 @@ export default function App() {
     try {
       localStorage.removeItem('singular_whatsapp_chats');
     } catch (e) {}
-    const freshChats = WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] }));
-    setState({ whatsappChats: freshChats });
-    addToast({ title: 'Cache Limpo', message: 'Histórico de mensagens em cache foi resetado.', accent: '#4fd1de' });
+    loadGeneralChat();
+    addToast({ title: 'Cache Limpo', message: 'Histórico recarregado do servidor.', accent: '#4fd1de' });
+  }
+
+  // Maps a backend chat message (senderId is a stable slug, e.g. "caio-marques")
+  // to the shape the WhatsApp-style UI renders (sender: 'me' | 'contact').
+  function toUiMessage(m, myId) {
+    const isMe = m.senderId === myId;
+    return {
+      id: m.id,
+      text: m.text,
+      sender: isMe ? 'me' : 'contact',
+      author: isMe ? undefined : m.author,
+      authorBg: isMe ? undefined : m.authorBg,
+      timestamp: m.timestamp,
+      status: m.status,
+    };
+  }
+
+  async function loadGeneralChat() {
+    const myId = (users.find((u) => u.id === 'caio-marques') || users[0])?.id;
+    if (!myId) return;
+    try {
+      const chats = await api.getChats(myId);
+      const general = chats.find((c) => c.name === 'Bate-papo Geral') || chats[0];
+      if (!general) return;
+      const messages = await api.getChatMessages(general.id);
+      setState((s2) => ({
+        whatsappChatDbId: general.id,
+        whatsappChats: s2.whatsappChats.map((c) => (
+          c.id === 'general' ? { ...c, messages: messages.map((m) => toUiMessage(m, myId)) } : c
+        )),
+      }));
+    } catch (e) {
+      console.warn('Could not load real chat, falling back to local cache.', e);
+    }
   }
 
   function openWhatsappChat() {
@@ -572,105 +1443,47 @@ export default function App() {
       mobileSidebarOpen: false,
       whatsappChats: (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
         ? s2.whatsappChats
-        : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] })),
+        : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [] })),
     }));
+    loadGeneralChat();
   }
 
-  function sendWhatsappMessage() {
+  async function sendWhatsappMessage() {
     const text = whatsappMessageDraft.trim();
-    if (!text) return;
-    const now = new Date();
-    const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    if (!text || !whatsappChatDbId) return;
+    const myId = (users.find((u) => u.id === 'caio-marques') || users[0])?.id;
     const isEphemeral = !!whatsappEphemeralMode;
-    const newMsg = {
-      id: 'm_' + Date.now(),
-      text,
-      sender: 'me',
-      timestamp: timeStr,
-      status: 'sent',
-      isEphemeral,
-    };
+    const targetChatId = whatsappActiveChatId || 'general';
 
-    let targetChatId = whatsappActiveChatId || 'general';
-    setState((s2) => {
-      const baseChats = (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
-        ? s2.whatsappChats
-        : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] }));
-      const updatedChats = baseChats.map((c) => {
-        if (c.id === targetChatId) {
-          return {
-            ...c,
-            messages: [...(c.messages || []), newMsg],
-          };
-        }
-        return c;
-      });
-      try {
-        const toSave = updatedChats.map((c) => ({
-          ...c,
-          messages: (c.messages || []).filter((m) => !m.isEphemeral),
-        }));
-        localStorage.setItem('singular_whatsapp_chats', JSON.stringify(toSave));
-      } catch (e) {}
-      return {
-        whatsappChats: updatedChats,
-        whatsappMessageDraft: '',
-        whatsappEmojiPickerOpen: false,
-      };
-    });
+    setState({ whatsappMessageDraft: '', whatsappEmojiPickerOpen: false });
 
-    // Auto reply simulation after 1.2s from one of the other team members
-    setTimeout(() => {
-      const teamMembers = [
-        { name: 'Gabriel Alves', color: '#4fd1de' },
-        { name: 'Caio Araújo', color: '#8c6e2a' },
-        { name: 'Henrique Gomes', color: '#1e5f6e' },
-      ];
-      const randomMember = teamMembers[Math.floor(Math.random() * teamMembers.length)];
-      const replyTime = new Date();
-      const replyTimeStr = String(replyTime.getHours()).padStart(2, '0') + ':' + String(replyTime.getMinutes()).padStart(2, '0');
-      const replyReplies = [
-        'Perfeito! Já acompanhei no Singular Scrum e os cards estão 100% alinhados.',
-        'Excelente! Acabei de atualizar a tarefa no Kanban.',
-        'Combinado! Qualquer novidade coloco aqui no bate-papo geral.',
-        'Show de bola, seguimos com a sprint!',
-        'Tudo certo, testes unitários e integrações aprovados.',
-      ];
-      const randomReply = replyReplies[Math.floor(Math.random() * replyReplies.length)];
-      const replyMsg = {
-        id: 'm_' + Date.now(),
-        text: randomReply,
-        sender: 'contact',
-        author: randomMember.name,
-        authorBg: randomMember.color,
-        timestamp: replyTimeStr,
-        status: 'received',
-      };
-      setState((s2) => {
-        const currentChats = (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
-          ? s2.whatsappChats
-          : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] }));
-        const updated = currentChats.map((c) => {
-          if (c.id === targetChatId) {
-            return {
-              ...c,
-              messages: [...(c.messages || []), replyMsg],
-            };
-          }
-          return c;
-        });
-        try {
-          const toSave = updated.map((c) => ({
-            ...c,
-            messages: (c.messages || []).filter((m) => !m.isEphemeral),
-          }));
-          localStorage.setItem('singular_whatsapp_chats', JSON.stringify(toSave));
-        } catch (e) {}
-        return {
-          whatsappChats: updated,
-        };
-      });
-    }, 1200);
+    if (isEphemeral) {
+      // Ephemeral messages are a purely visual/local affordance — they are
+      // never sent to the backend, so they never persist for anyone.
+      const now = new Date();
+      const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      const newMsg = { id: 'm_' + Date.now(), text, sender: 'me', timestamp: timeStr, status: 'sent', isEphemeral: true };
+      setState((s2) => ({
+        whatsappChats: s2.whatsappChats.map((c) => (
+          c.id === targetChatId ? { ...c, messages: [...(c.messages || []), newMsg] } : c
+        )),
+      }));
+      return;
+    }
+
+    try {
+      const saved = await api.sendChatMessage(whatsappChatDbId, myId, text);
+      const uiMsg = toUiMessage(saved, myId);
+      setState((s2) => ({
+        whatsappChats: s2.whatsappChats.map((c) => (
+          c.id === targetChatId && !(c.messages || []).some((m) => m.id === uiMsg.id)
+            ? { ...c, messages: [...(c.messages || []), uiMsg] }
+            : c
+        )),
+      }));
+    } catch (e) {
+      addToast({ title: 'Falha ao enviar', message: 'Não foi possível enviar a mensagem.', accent: '#e5847c' });
+    }
   }
 
   // ---------- effects ----------
@@ -681,23 +1494,10 @@ export default function App() {
     try {
       if (localStorage.getItem('singular_player_repeat') === 'true') setState({ repeat: true });
       if (localStorage.getItem('singular_whatsapp_connected') === 'true') setState({ whatsappConnected: true });
-      const savedChats = localStorage.getItem('singular_whatsapp_chats');
-      if (savedChats) {
-        try {
-          const parsed = JSON.parse(savedChats);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const hasGeneral = parsed.some((c) => c.id === 'general');
-            if (hasGeneral) {
-              setState({ whatsappChats: parsed, whatsappActiveChatId: 'general' });
-            } else {
-              setState({
-                whatsappChats: WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] })),
-                whatsappActiveChatId: 'general',
-              });
-            }
-          }
-        } catch (e) {}
-      }
+      // Chat messages are no longer cached in localStorage — they're always
+      // loaded fresh from the backend (see loadGeneralChat) so stale/fake
+      // cached messages can't resurface after the DB is cleared.
+      localStorage.removeItem('singular_whatsapp_chats');
       const savedVol = localStorage.getItem('singular_player_volume');
       if (savedVol !== null && !isNaN(Number(savedVol))) {
         setState({ volume: Number(savedVol) });
@@ -713,28 +1513,65 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Hydrate from the Node.js backend on first load. If it's unreachable (or not
-  // started yet) the app keeps working off the local seed data in `initialState`.
+  // Hydrate from the Node.js backend on first load.
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      api.getUsers(),
-      api.getTasks(),
-      api.getSongs(),
-      api.getPlaylists(),
+      api.getUsers().catch(() => null),
+      api.getTasks().catch(() => null),
+      api.getFeed().catch(() => null),
+      api.getContacts().catch(() => null),
+      api.getSongs().catch(() => null),
+      api.getPlaylists().catch(() => null),
       api.getWhatsappStatus().catch(() => null),
     ])
-      .then(([usersRes, tasksRes, songsRes, playlistsRes, waRes]) => {
+      .then(([usersRes, tasksRes, feedRes, contactsRes, songsRes, playlistsRes, waRes]) => {
         if (cancelled) return;
+        // `null` means the request failed (see the `.catch(() => null)` above) —
+        // keep whatever's currently in state. An array, even empty, is a real
+        // response and must replace it (an empty board means no tasks exist).
+        const mappedUsers = usersRes
+          ? usersRes.map((u) => {
+              if (u.id === 'caio-marques') {
+                try {
+                  const saved = localStorage.getItem('singular_user_avatar');
+                  if (saved && !u.avatarUrl) return { ...u, avatarUrl: saved };
+                } catch (e) {}
+              }
+              return u;
+            })
+          : null;
+
+        const mappedFeed = feedRes
+          ? feedRes.map((f) => {
+              const u = (mappedUsers || []).find((usr) => usr.id === f.userId);
+              const userAvatarUrl = f.userAvatarUrl || u?.avatarUrl || null;
+              const updatedComments = (f.comentarios || []).map((c) => {
+                const cUser = (mappedUsers || []).find((usr) => usr.id === c.userId);
+                return {
+                  ...c,
+                  userAvatarUrl: c.userAvatarUrl || cUser?.avatarUrl || null,
+                };
+              });
+              return {
+                ...f,
+                userAvatarUrl,
+                comentarios: updatedComments,
+              };
+            })
+          : null;
+
         setState({
-          ...(usersRes?.length ? { users: usersRes } : {}),
-          ...(tasksRes?.length ? { tasks: tasksRes } : {}),
-          ...(songsRes?.length ? { songs: songsRes } : {}),
-          ...(playlistsRes?.length ? { playlists: playlistsRes } : {}),
+          ...(mappedUsers ? { users: mappedUsers } : {}),
+          ...(tasksRes ? { tasks: tasksRes } : {}),
+          ...(mappedFeed ? { feed: mappedFeed } : {}),
+          ...(contactsRes ? { contacts: contactsRes } : {}),
+          ...(songsRes ? { songs: songsRes } : {}),
+          ...(playlistsRes ? { playlists: playlistsRes } : {}),
           ...(waRes && waRes.connected !== undefined ? { whatsappConnected: waRes.connected } : {}),
         });
       })
-      .catch(() => console.warn('Backend unreachable — running on local seed data. Start it with `npm run dev` inside backend/.'));
+      .catch(() => console.warn('Backend unreachable — showing empty state.'));
     return () => { cancelled = true; };
   }, []);
 
@@ -744,18 +1581,62 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
-  // ---------- derived values (equivalent to the design's renderVals) ----------
+  useEffect(() => {
+    try {
+      localStorage.setItem('singular_board_view', boardView);
+    } catch (e) {}
+  }, [boardView]);
+
+  // Sync editDisplayName when settings modal opens
+  useEffect(() => {
+    if (settingsModalOpen) {
+      const myUser = users.find((u) => u.id === 'caio-marques') || users[0];
+      if (myUser) setState({ editDisplayName: myUser.name });
+    }
+  }, [settingsModalOpen, users]);
+
+  // Live delivery for the team chat: the backend broadcasts every new
+  // message over Supabase Realtime on channel "chat:<chatId>" right after
+  // persisting it (see backend/server.js), so this only needs to listen.
+  useEffect(() => {
+    if (!whatsappChatModalOpen || !whatsappChatDbId || !supabase) return;
+    const myId = (users.find((u) => u.id === 'caio-marques') || users[0])?.id;
+    const channel = supabase.channel(`chat:${whatsappChatDbId}`);
+    channel
+      .on('broadcast', { event: 'new_message' }, ({ payload }) => {
+        const uiMsg = toUiMessage(payload, myId);
+        setState((s2) => ({
+          whatsappChats: s2.whatsappChats.map((c) => (
+            c.id === 'general' && !(c.messages || []).some((m) => m.id === uiMsg.id)
+              ? { ...c, messages: [...(c.messages || []), uiMsg] }
+              : c
+          )),
+        }));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [whatsappChatModalOpen, whatsappChatDbId]);
+
+  // ---------- derived values ----------
   const th = THEMES[mainTheme];
   const ringOff = 'transparent';
   const t = STRINGS[lang];
   const appT = APP_STRINGS[lang];
   const activeBg = '#2a8c97';
+
+  const isFeedRoute = route === 'feed';
+  const isContactsRoute = route === 'contatos';
+  const isUserRoute = !isFeedRoute && !isContactsRoute;
+
   const currentUser = users.find((u) => u.id === route) || users[0];
+  const myUserAccount = users.find((u) => u.id === 'caio-marques') || users[0];
+
   const allUserTasks = tasks.filter((tk) => tk.userId === route);
-  const projectOptions = [...new Set(allUserTasks.map((tk) => tk.projeto))];
+  const projectOptions = [...new Set(tasks.map((tk) => tk.projeto))];
   const safeWhatsappChats = (Array.isArray(whatsappChats) && whatsappChats.length > 0)
     ? whatsappChats
-    : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [...c.messages] }));
+    : WHATSAPP_CHATS_SEED.map((c) => ({ ...c, messages: [] }));
 
   function parseBR(str) {
     if (!str) return null;
@@ -782,7 +1663,17 @@ export default function App() {
   function decorateTask(tk) {
     const openDetails = () => setState({ detailsTaskId: tk.id });
     const openAction = () =>
-      setState({ actionTaskId: tk.id, draftTitulo: tk.titulo, draftPrazo: tk.prazo || '', draftStatus: tk.status, draftUserId: tk.userId, draftConcluida: !!tk.concluida });
+      setState({
+        actionTaskId: tk.id,
+        draftTitulo: tk.titulo,
+        draftProjeto: tk.projeto || '',
+        draftTarefa: tk.tarefa || '',
+        draftDetalhes: tk.detalhes || '',
+        draftPrazo: tk.prazo || '',
+        draftStatus: tk.status,
+        draftUserId: tk.userId,
+        draftConcluida: !!tk.concluida,
+      });
     return {
       ...tk,
       prazoLabel: tk.prazo || appT.inexistente,
@@ -825,46 +1716,52 @@ export default function App() {
     select: () => setState({ draftUserId: u.id }),
   }));
 
+  const newTaskStatusOptions = STATUS_DEFS.map((sd) => ({
+    id: sd.id,
+    label: appT.statusLabels[sd.id],
+    bg: newTaskStatus === sd.id ? sd.color : th.toolbarBtnBg,
+    color: newTaskStatus === sd.id ? '#052226' : th.toolbarIcon,
+    border: newTaskStatus === sd.id ? `1px solid ${sd.color}` : `1px solid ${th.surfaceBorder}`,
+    select: () => setState({ newTaskStatus: sd.id }),
+  }));
+
+  const newTaskUserOptions = users.map((u) => ({
+    ...u,
+    bg: newTaskUserId === u.id ? '#2a8c97' : th.toolbarBtnBg,
+    color: newTaskUserId === u.id ? '#fff' : th.toolbarIcon,
+    border: newTaskUserId === u.id ? '1px solid #2a8c97' : `1px solid ${th.surfaceBorder}`,
+    select: () => setState({ newTaskUserId: u.id }),
+  }));
+
   const navUsers = users.map((u) => ({
     ...u,
     bg: route === u.id ? activeBg : 'transparent',
     color: route === u.id ? '#fff' : th.surfaceSubtle,
-    select: () => {
-      if (route === u.id) return;
-      const curIdx = users.findIndex((x) => x.id === route);
-      const nextIdx = users.findIndex((x) => x.id === u.id);
-      const isMovingDown = nextIdx > curIdx;
-
-      // 1. Exit animation: Slide up out if moving down, slide down out if moving up
-      setState({
-        contentOpacity: 0,
-        contentTransform: isMovingDown ? 'translateY(-22px)' : 'translateY(22px)',
-        contentTransition: 'opacity 0.14s ease, transform 0.14s ease',
-      });
-
-      setTimeout(() => {
-        // 2. Switch route and stage the new content at opposite offset without transition
-        setState({
-          route: u.id,
-          mobileSidebarOpen: false,
-          contentOpacity: 0,
-          contentTransform: isMovingDown ? 'translateY(26px)' : 'translateY(-26px)',
-          contentTransition: 'none',
-        });
-
-        // 3. Slide up in / slide down in to center position
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setState({
-              contentOpacity: 1,
-              contentTransform: 'translateY(0)',
-              contentTransition: 'opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-            });
-          });
-        });
-      }, 140);
-    },
+    select: () => navigateToRoute(u.id),
   }));
+
+  // Filtered Feed Items
+  const feedQ = (feedSearch || '').trim().toLowerCase();
+  const filteredFeed = feed.filter((item) => {
+    if (feedFilterProject && item.projeto !== feedFilterProject) return false;
+    if (feedFilterUser && item.userId !== feedFilterUser) return false;
+    if (feedQ) {
+      const hay = [item.taskTitle, item.projeto, item.userName, item.data, appT.statusLabels[item.paraStatus], appT.statusLabels[item.deStatus]].join(' ').toLowerCase();
+      if (!hay.includes(feedQ)) return false;
+    }
+    return true;
+  });
+
+  // Filtered Contacts Items
+  const contactQ = (contactSearch || '').trim().toLowerCase();
+  const filteredContacts = contacts.filter((c) => {
+    if (contactFilterStatus && contactFilterStatus !== 'todos' && c.status !== contactFilterStatus) return false;
+    if (contactQ) {
+      const hay = [c.nome, c.empresa, c.email, c.telefone, c.tipoSistema, c.orcamento, c.origem, c.descricao].join(' ').toLowerCase();
+      if (!hay.includes(contactQ)) return false;
+    }
+    return true;
+  });
 
   const pageSize = 6;
   const q2 = redirectSearch.trim().toLowerCase();
@@ -876,8 +1773,8 @@ export default function App() {
     thumb: 'https://img.youtube.com/vi/' + sg.videoId + '/default.jpg',
     playAudio: () => loadSong(sg.id),
     playVideo: () => loadSong(sg.id, { video: true }),
-    btnOpacity: playerUnavailable ? 0.35 : 1,
-    btnPointer: playerUnavailable ? 'none' : 'auto',
+    btnOpacity: 1,
+    btnPointer: 'auto',
   }));
   const pageLabel = redirectPageClamped + 1 + ' / ' + totalPages;
 
@@ -907,14 +1804,12 @@ export default function App() {
   const currentSong = songs.find((sg) => sg.id === currentSongId);
   const currentSongTitle = currentSong ? currentSong.titulo : appT.noSongLabel;
   const currentSongAddedBy = currentSong ? currentSong.addedBy : '';
-  const currentSongThumb = currentSong ? 'https://img.youtube.com/vi/' + currentSong.videoId + '/default.jpg' : '';
 
   const ptBg = lang === 'pt' ? '#2a8c97' : 'transparent';
   const ptColor = lang === 'pt' ? '#fff' : 'rgba(255,255,255,0.5)';
   const enBg = lang === 'en' ? '#2a8c97' : 'transparent';
   const enColor = lang === 'en' ? '#fff' : 'rgba(255,255,255,0.5)';
   const rememberBg = remember ? '#2a8c97' : 'rgba(255,255,255,0.15)';
-  const rememberJustify = remember ? 'flex-end' : 'flex-start';
   const slideX = fadeOpacity === 1 ? '0px' : '-16px';
 
   const burgerDisplay = isMobile ? 'flex' : 'none';
@@ -935,10 +1830,8 @@ export default function App() {
 
   const repeatBg = repeat ? '#2a8c97' : th.hoverBg;
   const repeatColor = repeat ? '#fff' : th.surfaceText;
-  const shuffleBg = shuffle ? '#2a8c97' : th.hoverBg;
-  const shuffleColor = shuffle ? '#fff' : th.surfaceText;
-  const playBtnOpacity = playerUnavailable ? 0.35 : 1;
-  const playBtnPointer = playerUnavailable ? 'none' : 'auto';
+  const playBtnOpacity = 1;
+  const playBtnPointer = 'auto';
 
   const chevronRotate = userMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)';
 
@@ -956,6 +1849,27 @@ export default function App() {
       <button onClick={() => changeLang('pt')} style={s(`border:none;cursor:pointer;padding:5px 10px;border-radius:5px;font-family:${FONT};font-size:11.5px;font-weight:700;letter-spacing:0.03em;background:${ptBg};color:${ptColor}`)}>PT</button>
       <button onClick={() => changeLang('en')} style={s(`border:none;cursor:pointer;padding:5px 10px;border-radius:5px;font-family:${FONT};font-size:11.5px;font-weight:700;letter-spacing:0.03em;background:${enBg};color:${enColor}`)}>EN</button>
     </>
+  );
+
+  const themeCircles = (
+    <div style={s('display:flex;align-items:center;gap:8px')}>
+      <button onClick={() => setState({ mainTheme: 'dark' })} title="Tema escuro" style={s(`width:22px;height:22px;border-radius:50%;background:#050f13;border:2px solid ${ringDark};cursor:pointer;padding:0;transition:all 0.15s ease`)}></button>
+      <button onClick={() => setState({ mainTheme: 'porcelain' })} title="Fundo porcelana" style={s(`width:22px;height:22px;border-radius:50%;background:#faf9f6;border:2px solid ${ringPorcelain};cursor:pointer;padding:0;transition:all 0.15s ease`)}></button>
+      <button onClick={() => setState({ mainTheme: 'sepia' })} title="Fundo amarelado" style={s(`width:22px;height:22px;border-radius:50%;background:#f5ecd7;border:2px solid ${ringSepia};cursor:pointer;padding:0;transition:all 0.15s ease`)}></button>
+    </div>
+  );
+
+  const viewModeButtons = (
+    <div style={s(`display:flex;gap:2px;background:${th.toolbarBtnBg};border:0px;border-radius:7px;padding:2px`)}>
+      <button onClick={() => setState({ boardView: 'kanban' })} style={s(`display:flex;align-items:center;gap:6px;border:none;cursor:pointer;padding:6px 12px;border-radius:6px;font-family:${FONT};font-size:12.5px;font-weight:700;background:${kanbanViewBg};color:${kanbanViewColor};transition:all 0.15s ease`)}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="6" height="16" rx="1"></rect><rect x="10" y="4" width="6" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="7" rx="1"></rect></svg>
+        {appT.viewKanban}
+      </button>
+      <button onClick={() => setState({ boardView: 'table' })} style={s(`display:flex;align-items:center;gap:6px;border:none;cursor:pointer;padding:6px 12px;border-radius:6px;font-family:${FONT};font-size:12.5px;font-weight:700;background:${tableViewBg};color:${tableViewColor};transition:all 0.15s ease`)}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        {appT.viewTable}
+      </button>
+    </div>
   );
 
   return (
@@ -1002,51 +1916,35 @@ export default function App() {
                     onChange={(e) => setState({ password: e.target.value })}
                     style={s(`width:100%;box-sizing:border-box;padding:15px 44px 15px 44px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#fff;font-size:14.5px;font-family:${FONT};outline:none`)}
                   />
-                  <Hoverable
-                    onClick={() => setState((s2) => ({ showPassword: !s2.showPassword }))}
-                    aria-label="Toggle password visibility"
-                    base={s('position:absolute;right:14px;top:50%;transform:translateY(-50%) scale(1);background:none;border:none;cursor:pointer;padding:0;color:rgba(255,255,255,0.5);display:flex;align-items:center;transition:transform 0.15s ease')}
-                    hover={{ transform: 'translateY(-50%) scale(1.2)' }}
-                  >
+                  <button onClick={() => setState((s2) => ({ showPassword: !s2.showPassword }))} style={s('position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.5);padding:4px')}>
                     {showPassword ? (
-                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M17.94 17.94A10.94 10.94 0 0112 20c-7 0-10-8-10-8a18.6 18.6 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 10 8 10 8a18.5 18.5 0 01-2.16 3.19M14.12 14.12a3 3 0 11-4.24-4.24"></path>
-                        <line x1="1" y1="1" x2="23" y2="23"></line>
-                      </svg>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                     ) : (
-                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                        <circle cx="12" cy="12" r="3"></circle>
-                      </svg>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                     )}
-                  </Hoverable>
+                  </button>
                 </div>
 
-                <div style={s('display:flex;align-items:center;margin-bottom:26px;padding:0 2px')}>
-                  <div style={s('display:flex;align-items:center;gap:10px')}>
-                    <button
-                      onClick={() => setState((s2) => ({ remember: !s2.remember }))}
-                      aria-label="Remember me"
-                      style={s(`width:34px;height:19px;border-radius:999px;border:none;cursor:pointer;padding:2px;display:flex;align-items:center;background:${rememberBg};justify-content:${rememberJustify};transition:background 0.15s`)}
-                    >
-                      <span style={s('width:15px;height:15px;border-radius:50%;background:#fff;display:block;box-shadow:0 1px 2px rgba(0,0,0,0.3)')}></span>
+                <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:22px')}>
+                  <label style={s('display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.7);font-size:13px;cursor:pointer;user-select:none')}>
+                    <button onClick={() => setState((s2) => ({ remember: !s2.remember }))} style={s(`width:32px;height:18px;border-radius:999px;border:none;cursor:pointer;padding:2px;display:flex;align-items:center;background:${rememberBg};transition:background 0.2s`)}>
+                      <span style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', transform: remember ? 'translateX(14px)' : 'translateX(0)', transition: 'transform 0.2s' }}></span>
                     </button>
-                    <span style={s('color:rgba(255,255,255,0.75);font-size:13.5px')}>{t.remember}</span>
-                  </div>
+                    {t.remember}
+                  </label>
                 </div>
 
-                <Hoverable
+                <button
                   onClick={() => setState({ view: 'app' })}
-                  base={s(`width:100%;padding:16px;border:none;border-radius:5px;background:#2a8c97;color:#fff;font-size:15.5px;font-weight:600;cursor:pointer;font-family:${FONT}`)}
-                  hover={{ background: '#236f78' }}
+                  style={s(`width:100%;padding:14px;border-radius:10px;border:none;background:#2a8c97;color:#ffffff;font-size:15px;font-weight:700;letter-spacing:0.04em;cursor:pointer;font-family:${FONT};box-shadow:0 4px 18px rgba(42,140,151,0.4);transition:background 0.2s`)}
                 >
                   {t.submit}
-                </Hoverable>
+                </button>
               </div>
-            </div>
 
-            <div style={{ transition: 'opacity 0.25s ease, transform 0.25s ease', opacity: fadeOpacity, transform: `translateX(${slideX})` }}>
-              <p style={s('margin:28px 0 0;text-align:center;color:rgba(255,255,255,0.4);font-size:12.5px;padding:0 16px')}>{t.footer}</p>
+              <div style={s('margin-top:28px;text-align:center;color:rgba(255,255,255,0.35);font-size:11.5px;letter-spacing:0.02em')}>
+                {t.footer}
+              </div>
             </div>
           </div>
         </>
@@ -1073,16 +1971,57 @@ export default function App() {
             <img src="/singular-selo-1c.png" alt="Singular" style={s('width:28px;height:28px;object-fit:contain')} />
             <span style={s(`color:${th.surfaceText};font-size:16px;font-weight:700;letter-spacing:0.05em`)}>SINGULAR</span>
             <div style={s('flex:1')}></div>
-            <div style={s(`display:flex;gap:2px;background:${th.toolbarBtnBg};border:0px;border-radius:5px;padding:2px`)}>{langSwitch}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Hoverable
+                as="button"
+                onClick={() => setState({ redirectModalOpen: true })}
+                title={appT.redirectButton || 'Redirecionamento'}
+                aria-label={appT.redirectButton || 'Redirecionamento'}
+                base={s(`background:${th.toolbarBtnBg};border:1px solid ${th.surfaceBorder};border-radius:7px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;color:${th.toolbarIcon};cursor:pointer;transition:all 0.15s ease`)}
+                hover={{ background: th.hoverBg, color: '#4fd1de', borderColor: '#4fd1de', transform: 'scale(1.06)' }}
+              >
+                <Phone size={15} />
+              </Hoverable>
+              <div style={s(`display:flex;gap:2px;background:${th.toolbarBtnBg};border:0px;border-radius:5px;padding:2px`)}>{langSwitch}</div>
+            </div>
           </header>
 
           <nav style={s(`position:fixed;top:64px;bottom:0;left:0;width:260px;z-index:30;background:${th.surfaceBg};border-right:1px solid ${th.surfaceBorder};padding:20px 14px 14px;box-sizing:border-box;transform:${sidebarTransform};transition:transform 0.25s ease;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden`)}>
             <div className="hide-scrollbar" style={s('flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;margin-bottom:12px;padding-right:2px')}>
               {/* Início Section */}
               <div style={s(`color:${th.surfaceMuted};font-size:11px;letter-spacing:0.12em;font-weight:600;padding:0 10px 8px`)}>{appT.navHomeLabel || 'Início'}</div>
+              
+              {/* 1. Feed Button */}
+              <button
+                onClick={() => navigateToRoute('feed')}
+                style={s(`width:100%;display:flex;align-items:center;gap:12px;padding:10px 12px;border:none;border-radius:8px;cursor:pointer;margin-bottom:4px;background:${isFeedRoute ? activeBg : 'transparent'};color:${isFeedRoute ? '#fff' : th.surfaceText};font-family:${FONT};font-size:14px;text-align:left;transition:background 0.2s ease, color 0.2s ease, transform 0.2s ease;transform:${isFeedRoute ? 'translateX(4px)' : 'translateX(0)'}`)}
+                onMouseEnter={(e) => {
+                  if (!isFeedRoute) {
+                    e.currentTarget.style.background = th.hoverBg;
+                    e.currentTarget.style.transform = 'translateX(4px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isFeedRoute) {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                  }
+                }}
+              >
+                <span style={s(`width:26px;height:26px;border-radius:50%;background:#2a8c97;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;flex-shrink:0;transition:transform 0.2s ease;transform:${isFeedRoute ? 'scale(1.08)' : 'scale(1)'}`)}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+                  </svg>
+                </span>
+                <span style={{ fontWeight: isFeedRoute ? '600' : '400', transition: 'font-weight 0.2s ease' }}>
+                  {appT.navFeed || 'Feed'}
+                </span>
+              </button>
+
+              {/* 2. Chat Interno Button */}
               <button
                 onClick={openWhatsappChat}
-                style={s(`width:100%;display:flex;align-items:center;gap:12px;padding:10px 12px;border:none;border-radius:8px;cursor:pointer;margin-bottom:16px;background:${whatsappChatModalOpen ? activeBg : 'transparent'};color:${whatsappChatModalOpen ? '#fff' : th.surfaceText};font-family:${FONT};font-size:14px;text-align:left;transition:background 0.2s ease, color 0.2s ease, transform 0.2s ease;transform:${whatsappChatModalOpen ? 'translateX(4px)' : 'translateX(0)'}`)}
+                style={s(`width:100%;display:flex;align-items:center;gap:12px;padding:10px 12px;border:none;border-radius:8px;cursor:pointer;margin-bottom:4px;background:${whatsappChatModalOpen ? activeBg : 'transparent'};color:${whatsappChatModalOpen ? '#fff' : th.surfaceText};font-family:${FONT};font-size:14px;text-align:left;transition:background 0.2s ease, color 0.2s ease, transform 0.2s ease;transform:${whatsappChatModalOpen ? 'translateX(4px)' : 'translateX(0)'}`)}
                 onMouseEnter={(e) => {
                   if (!whatsappChatModalOpen) {
                     e.currentTarget.style.background = th.hoverBg;
@@ -1106,6 +2045,43 @@ export default function App() {
                 </span>
               </button>
 
+              {/* 3. Contatos LP Button */}
+              <button
+                onClick={() => navigateToRoute('contatos')}
+                style={s(`width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:none;border-radius:8px;cursor:pointer;margin-bottom:16px;background:${isContactsRoute ? activeBg : 'transparent'};color:${isContactsRoute ? '#fff' : th.surfaceText};font-family:${FONT};font-size:14px;text-align:left;transition:background 0.2s ease, color 0.2s ease, transform 0.2s ease;transform:${isContactsRoute ? 'translateX(4px)' : 'translateX(0)'}`)}
+                onMouseEnter={(e) => {
+                  if (!isContactsRoute) {
+                    e.currentTarget.style.background = th.hoverBg;
+                    e.currentTarget.style.transform = 'translateX(4px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isContactsRoute) {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                  }
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={s(`width:26px;height:26px;border-radius:50%;background:#2a8c97;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;flex-shrink:0;transition:transform 0.2s ease;transform:${isContactsRoute ? 'scale(1.08)' : 'scale(1)'}`)}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="9" cy="7" r="4"></circle>
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                  </span>
+                  <span style={{ fontWeight: isContactsRoute ? '600' : '400', transition: 'font-weight 0.2s ease' }}>
+                    {appT.navContacts || 'Contatos'}
+                  </span>
+                </div>
+                {contacts.filter((c) => c.status === 'novo').length > 0 && (
+                  <span style={{ background: '#4fd1de', color: '#050f13', fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 999 }}>
+                    {contacts.filter((c) => c.status === 'novo').length}
+                  </span>
+                )}
+              </button>
+
               {/* Equipe Section */}
               <div style={s(`color:${th.surfaceMuted};font-size:11px;letter-spacing:0.12em;font-weight:600;padding:0 10px 8px`)}>{appT.navLabel}</div>
               {navUsers.map((u) => (
@@ -1114,7 +2090,15 @@ export default function App() {
                   onClick={u.select}
                   style={s(`width:100%;display:flex;align-items:center;gap:12px;padding:10px 12px;border:none;border-radius:8px;cursor:pointer;margin-bottom:4px;background:${u.bg};color:${u.color};font-family:${FONT};font-size:14px;text-align:left;transition:background 0.2s ease, color 0.2s ease, transform 0.2s ease;transform:${route === u.id ? 'translateX(4px)' : 'translateX(0)'}`)}
                 >
-                  <span style={s(`width:26px;height:26px;border-radius:50%;background:${u.avatarBg};display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;flex-shrink:0;transition:transform 0.2s ease;transform:${route === u.id ? 'scale(1.08)' : 'scale(1)'}`)}>{u.initials}</span>
+                  <UserAvatar
+                    user={u}
+                    size={26}
+                    fontSize={11}
+                    style={{
+                      transition: 'transform 0.2s ease',
+                      transform: route === u.id ? 'scale(1.08)' : 'scale(1)',
+                    }}
+                  />
                   <span style={{ fontWeight: route === u.id ? '600' : '400', transition: 'font-weight 0.2s ease' }}>{u.name}</span>
                 </button>
               ))}
@@ -1141,7 +2125,7 @@ export default function App() {
 
                   <button
                     onClick={() => handleConnectWhatsapp(true)}
-                    style={s(`width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 8px;border-radius:6px;background:rgba(42,140,151,0.14);color:#4fd1de;border:1px dashed rgba(79,209,222,0.35);font-family:${FONT};font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s ease`)}
+                    style={s(`width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 8px;border-radius:6px;background:rgba(42,140,151,0.14);color:#4fd1de;border:1px dashed rgba(79,209,222,0.35);font-family:${FONT};font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s ease`)}
                     title="Simula conexão imediata e abre o layout da conversa (Dev)"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'rgba(42,140,151,0.26)';
@@ -1150,7 +2134,8 @@ export default function App() {
                       e.currentTarget.style.background = 'rgba(42,140,151,0.14)';
                     }}
                   >
-                    <span>⚡ Simular Conexão (Dev)</span>
+                    <Zap size={13} style={{ flexShrink: 0 }} />
+                    <span>Simular Conexão (Dev)</span>
                   </button>
                 </div>
               ) : (
@@ -1236,49 +2221,59 @@ export default function App() {
                   </button>
 
                   <div
-                    onMouseEnter={() => setState({ volumeHover: true })}
-                    onMouseLeave={() => setState({ volumeHover: false })}
+                    onMouseEnter={handleVolumeMouseEnter}
+                    onMouseLeave={handleVolumeMouseLeave}
                     style={s('position:relative;display:flex;align-items:center')}
                   >
                     {volumeHover && (
                       <div
+                        onMouseEnter={handleVolumeMouseEnter}
+                        onMouseLeave={handleVolumeMouseLeave}
                         onClick={(e) => e.stopPropagation()}
                         style={{
                           position: 'absolute',
-                          bottom: 'calc(100% + 8px)',
+                          bottom: '100%',
                           right: 0,
-                          background: th.modalBg,
-                          border: `1px solid ${th.surfaceBorder}`,
-                          borderRadius: 8,
-                          padding: '8px 10px',
-                          boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          zIndex: 50,
-                          animation: 'fadeInSoft 0.15s ease both',
+                          paddingBottom: 8,
+                          zIndex: 60,
                         }}
                       >
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={isMuted ? 0 : volume}
-                          onChange={(e) => changeVolume(e.target.value)}
+                        <div
                           style={{
-                            width: 80,
-                            height: 4,
-                            accentColor: '#2a8c97',
-                            cursor: 'pointer',
+                            background: th.modalBg,
+                            border: `1px solid ${th.surfaceBorder}`,
+                            borderRadius: 8,
+                            padding: '8px 10px',
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            animation: 'fadeInSoft 0.15s ease both',
+                            whiteSpace: 'nowrap',
                           }}
-                        />
-                        <span style={{ color: th.surfaceText, fontSize: 11, fontWeight: 600, minWidth: 28, textAlign: 'right' }}>
-                          {isMuted ? '0%' : `${volume}%`}
-                        </span>
+                        >
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={isMuted ? 0 : volume}
+                            onChange={(e) => changeVolume(e.target.value)}
+                            style={{
+                              width: 80,
+                              height: 4,
+                              accentColor: '#2a8c97',
+                              cursor: 'pointer',
+                            }}
+                          />
+                          <span style={{ color: th.surfaceText, fontSize: 11, fontWeight: 600, minWidth: 28, textAlign: 'right' }}>
+                            {isMuted ? '0%' : `${volume}%`}
+                          </span>
+                        </div>
                       </div>
                     )}
                     <button
                       onClick={toggleMute}
+                      onMouseEnter={handleVolumeMouseEnter}
                       title={isMuted || volume === 0 ? 'Desmutar' : `Volume (${volume}%)`}
                       style={s(`background:${isMuted || volume === 0 ? 'rgba(255,138,128,0.15)' : th.toolbarBtnBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${isMuted || volume === 0 ? '#ff8a80' : th.surfaceText};cursor:pointer;transition:all 0.15s`)}
                     >
@@ -1308,7 +2303,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* Animated User Menu (Expands between Player and User Name button) */}
+              {/* Animated User Menu */}
               <div style={{
                 maxHeight: userMenuOpen ? '100px' : '0px',
                 opacity: userMenuOpen ? 1 : 0,
@@ -1345,8 +2340,8 @@ export default function App() {
                   base={s(`width:100%;display:flex;align-items:center;gap:10px;padding:8px 8px;border:none;border-radius:8px;background:none;cursor:pointer;color:${th.surfaceText};font-family:${FONT}`)}
                   hover={{ background: th.hoverBg }}
                 >
-                  <span style={s('width:30px;height:30px;border-radius:50%;background:#2a8c97;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0')}>CM</span>
-                  <span style={s('font-size:13.5px;font-weight:600;text-align:left;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>Caio Marques</span>
+                  <UserAvatar user={myUserAccount} size={30} fontSize={12} />
+                  <span style={s('font-size:13.5px;font-weight:600;text-align:left;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{myUserAccount.name || 'Alderson'}</span>
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transition: 'transform 0.25s ease', transform: chevronRotate, flexShrink: 0 }}>
                     <polyline points="18,15 12,9 6,15"></polyline>
                   </svg>
@@ -1356,161 +2351,693 @@ export default function App() {
           </nav>
 
           <main style={s(`padding:64px 0 60px;margin-left:${mainMarginLeft};max-width:100%;transition:margin-left 0.25s ease, background-color 0.2s ease;background:${th.bg};min-height:100vh;box-sizing:border-box;border-top-left-radius:24px`)}>
-            <div style={s(`display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:22px 32px;background:${th.toolbarBg};border-bottom:1px solid ${th.toolbarBorder}`)}>
-              <button onClick={() => setState({ mainTheme: 'dark' })} title="Tema escuro" style={s(`width:22px;height:22px;border-radius:50%;background:#050f13;border:2px solid ${ringDark};cursor:pointer;padding:0`)}></button>
-              <button onClick={() => setState({ mainTheme: 'porcelain' })} title="Fundo porcelana" style={s(`width:22px;height:22px;border-radius:50%;background:#faf9f6;border:2px solid ${ringPorcelain};cursor:pointer;padding:0`)}></button>
-              <button onClick={() => setState({ mainTheme: 'sepia' })} title="Fundo amarelado" style={s(`width:22px;height:22px;border-radius:50%;background:#f5ecd7;border:2px solid ${ringSepia};cursor:pointer;padding:0`)}></button>
-
-              <div style={s(`width:1px;height:20px;background:${th.toolbarBorder};margin:0 4px`)}></div>
-
-              <div style={s(`display:flex;gap:2px;background:${th.toolbarBtnBg};border:0px;border-radius:7px;padding:2px`)}>
-                <button onClick={() => setState({ boardView: 'kanban' })} style={s(`display:flex;align-items:center;gap:6px;border:none;cursor:pointer;padding:6px 12px;border-radius:6px;font-family:${FONT};font-size:12.5px;font-weight:700;background:${kanbanViewBg};color:${kanbanViewColor}`)}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="6" height="16" rx="1"></rect><rect x="10" y="4" width="6" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="7" rx="1"></rect></svg>
-                  {appT.viewKanban}
-                </button>
-                <button onClick={() => setState({ boardView: 'table' })} style={s(`display:flex;align-items:center;gap:6px;border:none;cursor:pointer;padding:6px 12px;border-radius:6px;font-family:${FONT};font-size:12.5px;font-weight:700;background:${tableViewBg};color:${tableViewColor}`)}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-                  {appT.viewTable}
+            {/* Top Toolbar */}
+            {isContactsRoute && (
+              <div style={s(`display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:22px 32px;background:${th.toolbarBg};border-bottom:1px solid ${th.toolbarBorder}`)}>
+                <button
+                  onClick={() => setState({ newContactModalOpen: true })}
+                  style={s(`display:flex;align-items:center;gap:6px;background:#2a8c97;border:none;border-radius:7px;padding:7px 14px;color:#fff;cursor:pointer;font-family:${FONT};font-size:12.5px;font-weight:700;margin-left:auto;transition:background 0.15s`)}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span>{appT.newContactModalTitle || '+ Novo Contato LP'}</span>
                 </button>
               </div>
+            )}
 
-              <button onClick={() => setState({ redirectModalOpen: true })} style={s(`display:flex;align-items:center;gap:6px;background:${th.toolbarBtnBg};border:none;border-radius:7px;padding:7px 14px;color:${th.toolbarIcon};cursor:pointer;font-family:${FONT};font-size:12.5px;font-weight:700`)}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.07 0l1.41-1.41a5 5 0 00-7.07-7.07L10 6"></path><path d="M14 11a5 5 0 00-7.07 0l-1.41 1.41a5 5 0 007.07 7.07L14 18"></path></svg>
-                {appT.redirectButton}
-              </button>
-            </div>
-
+            {/* Dynamic Content Area based on route */}
             <div style={{ ...s('padding:32px 32px 0'), opacity: contentOpacity, transform: contentTransform, transition: contentTransition }}>
-              <div style={s('display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:24px')}>
-                <div>
-                  <h1 style={s(`margin:0 0 6px;color:${th.text};font-size:28px;font-weight:700`)}>{currentUser.name}</h1>
-                  <p style={s(`margin:0;color:${th.muted};font-size:14px`)}>{userTasksRaw.length + ' ' + appT.tasksAssigned}</p>
-                </div>
-                <div style={s('display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;justify-content:flex-end;min-width:280px')}>
-                  <div style={s('position:relative;flex:1;min-width:200px;max-width:320px')}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={th.muted} strokeWidth="2" style={s('position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none')}>
-                      <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setState({ searchQuery: e.target.value })}
-                      placeholder={appT.searchPlaceholder}
-                      style={s(`width:100%;box-sizing:border-box;padding:9px 12px 9px 32px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.cardBg};color:${th.text};font-size:12.5px;font-family:${FONT};outline:none`)}
-                    />
-                  </div>
-                  <select
-                    value={filterProjeto}
-                    onChange={(e) => setState({ filterProjeto: e.target.value })}
-                    style={{ ...s(`padding:9px 10px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.cardBg};color:${th.text};font-size:12.5px;font-family:${FONT};outline:none`), colorScheme: mainTheme === 'dark' ? 'dark' : 'light' }}
-                  >
-                    <option value="">{appT.allProjects}</option>
-                    {projectOptions.map((proj) => (
-                      <option key={proj} value={proj}>{proj}</option>
-                    ))}
-                  </select>
-                  <input type="date" value={filterDateFrom} onChange={(e) => setState({ filterDateFrom: e.target.value })} style={{ ...s(`padding:8px 10px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.cardBg};color:${th.text};font-size:12px;font-family:${FONT};outline:none`), colorScheme: mainTheme === 'dark' ? 'dark' : 'light' }} />
-                  <input type="date" value={filterDateTo} onChange={(e) => setState({ filterDateTo: e.target.value })} style={{ ...s(`padding:8px 10px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.cardBg};color:${th.text};font-size:12px;font-family:${FONT};outline:none`), colorScheme: mainTheme === 'dark' ? 'dark' : 'light' }} />
-                </div>
-              </div>
+              
+              {/* ==================== 1. FEED VIEW ==================== */}
+              {isFeedRoute && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 40 }}>
+                  {/* Feed Header */}
+                  <div style={s('display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap')}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                        <span style={s('width:34px;height:34px;border-radius:10px;background:rgba(42,140,151,0.2);display:flex;align-items:center;justify-content:center;color:#4fd1de')}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                            <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+                          </svg>
+                        </span>
+                        <h1 style={s(`margin:0;color:${th.text};font-size:28px;font-weight:700`)}>{appT.feedTitle || 'Feed de Atividades'}</h1>
+                      </div>
+                      <p style={s(`margin:0;color:${th.muted};font-size:14px`)}>{appT.feedSubtitle || 'Últimas progressões em etapas de tarefas no geral de todos os projetos e membros'}</p>
+                    </div>
 
-              <div>
-                {boardView === 'kanban' && (
-                  <div className="hide-scrollbar" style={s('display:flex;gap:16px;overflow-x:auto;padding-bottom:40px;scrollbar-width:none;-ms-overflow-style:none')}>
-                    {kanbanColumns.map((col) => (
-                      <div key={col.id} style={s('flex:0 0 250px;display:flex;flex-direction:column;gap:12px')}>
-                        <div style={s('display:flex;align-items:center;justify-content:space-between;padding:0 4px')}>
-                          <span style={s(`display:flex;align-items:center;gap:6px;color:${th.text};font-size:12.5px;font-weight:700;letter-spacing:0.03em`)}>
-                            <span style={s(`width:8px;height:8px;border-radius:50%;background:${col.color};flex-shrink:0`)}></span>
-                            {col.label}
-                          </span>
-                          <span style={s(`color:${th.muted};font-size:11.5px;background:${th.cardBg};padding:2px 8px;border-radius:999px`)}>{col.count}</span>
-                        </div>
-                        {col.tasks.map((task) => (
-                          <Hoverable
-                            key={task.id}
-                            as="div"
-                            onClick={task.cardClick}
-                            base={{
-                              position: 'relative',
-                              background: th.cardBg,
-                              borderTop: `1px solid ${th.cardBorder}`,
-                              borderRight: `1px solid ${th.cardBorder}`,
-                              borderBottom: `1px solid ${th.cardBorder}`,
-                              borderLeft: `3px solid ${task.statusColor}`,
-                              borderRadius: 10,
-                              padding: 14,
-                              cursor: 'pointer',
-                              overflow: 'hidden',
-                            }}
-                            hover={{
-                              borderTop: `1px solid ${th.accent}`,
-                              borderRight: `1px solid ${th.accent}`,
-                              borderBottom: `1px solid ${th.accent}`,
-                            }}
+                    {/* Feed Filters */}
+                    <div style={s('display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;justify-content:flex-end;min-width:280px')}>
+                      <div style={s('position:relative;flex:1;min-width:200px;max-width:300px')}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={th.muted} strokeWidth="2" style={s('position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none')}>
+                          <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input
+                          type="text"
+                          value={feedSearch}
+                          onChange={(e) => setState({ feedSearch: e.target.value })}
+                          placeholder="Buscar no feed…"
+                          style={s(`width:100%;box-sizing:border-box;padding:9px 12px 9px 32px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.cardBg};color:${th.text};font-size:12.5px;font-family:${FONT};outline:none`)}
+                        />
+                      </div>
+
+                      <CustomSelect
+                        value={feedFilterProject}
+                        onChange={(val) => setState({ feedFilterProject: val })}
+                        options={[
+                          { value: '', label: appT.allProjects },
+                          ...projectOptions.map((proj) => ({ value: proj, label: proj })),
+                        ]}
+                        th={th}
+                        mainTheme={mainTheme}
+                      />
+
+                      <CustomSelect
+                        value={feedFilterUser}
+                        onChange={(val) => setState({ feedFilterUser: val })}
+                        options={[
+                          { value: '', label: 'Todos os membros' },
+                          ...users.map((u) => ({ value: u.id, label: u.name })),
+                        ]}
+                        th={th}
+                        mainTheme={mainTheme}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Summary Metric Pills */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+                    <div style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px`)}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(59,130,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                        <Zap size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: th.text }}>{feed.length}</div>
+                        <div style={{ fontSize: 12, color: th.muted }}>Atualizações Registradas</div>
+                      </div>
+                    </div>
+                    <div style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px`)}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(34,197,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#22c55e' }}>
+                        <Target size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: th.text }}>{tasks.filter((t2) => t2.concluida || t2.status === 'commit').length}</div>
+                        <div style={{ fontSize: 12, color: th.muted }}>Tarefas em Commit / Concluídas</div>
+                      </div>
+                    </div>
+                    <div style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px`)}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a855f7' }}>
+                        <Users size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: th.text }}>{users.length} Membros</div>
+                        <div style={{ fontSize: 12, color: th.muted }}>Equipe Ativa</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Feed Timeline Items */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {filteredFeed.length === 0 ? (
+                      <div style={s(`background:${th.cardBg};border:1px dashed ${th.cardBorder};border-radius:14px;padding:48px 20px;text-align:center;color:${th.muted}`)}>
+                        <p style={{ fontSize: 16, margin: 0 }}>Nenhuma atividade recente encontrada com os filtros selecionados.</p>
+                      </div>
+                    ) : (
+                      filteredFeed.map((item) => {
+                        const fromColor = (STATUS_DEFS.find((d) => d.id === item.deStatus) || {}).color || '#64748b';
+                        const toColor = (STATUS_DEFS.find((d) => d.id === item.paraStatus) || {}).color || '#22c55e';
+                        const fromLabel = appT.statusLabels[item.deStatus] || item.deStatus;
+                        const toLabel = appT.statusLabels[item.paraStatus] || item.paraStatus;
+
+                        return (
+                          <div
+                            key={item.id}
+                            style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:14px;padding:18px 22px;display:flex;align-items:flex-start;gap:18px;transition:border-color 0.2s ease`)}
                           >
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, opacity: task.cardOpacity }}>
-                              <span style={s(`color:${th.muted};font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em`)}>{task.projeto}</span>
-                              <span style={s(`color:${th.text};font-size:14px;font-weight:600;line-height:1.3`)}>{task.titulo}</span>
-                              <span style={s(`color:${th.muted};font-size:12px;margin-bottom:6px`)}>{task.tarefa}</span>
-                              <span style={{ color: task.prazoColor, fontSize: 11, fontStyle: task.prazoStyle }}>{task.prazoLabel}</span>
+                            {/* Avatar */}
+                            <UserAvatar
+                              user={{
+                                avatarUrl: item.userAvatarUrl || users.find((u) => u.id === item.userId)?.avatarUrl,
+                                avatarBg: item.userAvatarBg,
+                                initials: item.userInitials,
+                                name: item.userName,
+                              }}
+                              size={40}
+                              fontSize={13}
+                            />
+
+                            {/* Main Content */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ color: th.text, fontSize: 14.5, fontWeight: 700 }}>{item.userName}</span>
+                                  <span style={{ color: th.muted, fontSize: 13 }}>
+                                    {item.tipo === 'completed' ? 'concluiu e enviou para commit a tarefa' : 'progrediu a etapa da tarefa'}
+                                  </span>
+                                  <span style={s('background:rgba(42,140,151,0.18);color:#4fd1de;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:6px')}>
+                                    {item.projeto}
+                                  </span>
+                                </div>
+                                <span style={{ color: th.surfaceMuted, fontSize: 12 }}>{item.data}</span>
+                              </div>
+
+                              {/* Task Box */}
+                              <div
+                                onClick={() => setState({ detailsTaskId: item.taskId })}
+                                style={{
+                                  background: 'rgba(0,0,0,0.2)',
+                                  border: `1px solid ${th.cardBorder}`,
+                                  borderRadius: 10,
+                                  padding: '12px 16px',
+                                  marginTop: 8,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: 12,
+                                  flexWrap: 'wrap',
+                                  cursor: 'pointer',
+                                  transition: 'background 0.15s ease',
+                                }}
+                              >
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 200 }}>
+                                  <span style={{ color: th.text, fontSize: 14, fontWeight: 600 }}>{item.taskTitle}</span>
+                                  <span style={{ color: th.muted, fontSize: 11.5 }}>Clique para ver detalhes e especificações</span>
+                                </div>
+
+                                {/* Progression Badge Pill */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                                  <span style={{ background: fromColor, color: '#052226', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999 }}>
+                                    {fromLabel}
+                                  </span>
+                                  <ArrowRight size={14} color={th.muted} style={{ flexShrink: 0 }} />
+                                  <span style={{ background: toColor, color: '#052226', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999 }}>
+                                    {toLabel}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Comments Section */}
+                              <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${th.cardBorder}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {/* Comments List */}
+                                {item.comentarios && item.comentarios.length > 0 && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {item.comentarios.map((c) => (
+                                      <div
+                                        key={c.id}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'flex-start',
+                                          gap: 10,
+                                          background: 'rgba(0,0,0,0.12)',
+                                          border: `1px solid ${th.cardBorder}`,
+                                          borderRadius: 10,
+                                          padding: '10px 12px',
+                                          animation: 'fadeInSoft 0.15s ease both',
+                                        }}
+                                      >
+                                        {/* User Profile Avatar */}
+                                        <UserAvatar
+                                          user={{
+                                            avatarUrl: c.userAvatarUrl || users.find((u) => u.id === c.userId)?.avatarUrl,
+                                            avatarBg: c.userAvatarBg,
+                                            initials: c.userInitials,
+                                            name: c.userName,
+                                          }}
+                                          size={28}
+                                          fontSize={11}
+                                        />
+
+                                        {/* Comment Content */}
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 2 }}>
+                                            <span style={{ color: th.text, fontSize: 12.5, fontWeight: 700 }}>
+                                              {c.userName}
+                                            </span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                              <span style={{ color: th.muted, fontSize: 11 }}>
+                                                {c.data || 'Hoje'}
+                                              </span>
+                                              <button
+                                                onClick={() => deleteFeedComment(item.id, c.id)}
+                                                title="Excluir comentário"
+                                                style={{
+                                                  background: 'none',
+                                                  border: 'none',
+                                                  color: th.muted,
+                                                  cursor: 'pointer',
+                                                  padding: '2px 4px',
+                                                  borderRadius: 4,
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  justifyContent: 'center',
+                                                  transition: 'all 0.12s ease',
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                  e.currentTarget.style.color = '#ef4444';
+                                                  e.currentTarget.style.background = 'rgba(239,68,68,0.12)';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                  e.currentTarget.style.color = th.muted;
+                                                  e.currentTarget.style.background = 'none';
+                                                }}
+                                              >
+                                                <Trash2 size={11} />
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          <p style={{ margin: 0, color: th.surfaceText, fontSize: 12.5, lineHeight: 1.45, wordBreak: 'break-word' }}>
+                                            {c.texto}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* New Comment Input */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <UserAvatar user={myUserAccount} size={28} fontSize={11} />
+
+                                  <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+                                    <input
+                                      type="text"
+                                      value={feedCommentDrafts[item.id] || ''}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setState((s2) => ({
+                                          feedCommentDrafts: { ...s2.feedCommentDrafts, [item.id]: val },
+                                        }));
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          submitFeedComment(item.id);
+                                        }
+                                      }}
+                                      placeholder="Escreva um comentário sobre esta tarefa…"
+                                      style={s(`width:100%;box-sizing:border-box;padding:8px 36px 8px 12px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.inputBg || 'rgba(0,0,0,0.15)'};color:${th.text};font-size:12px;font-family:${FONT};outline:none`)}
+                                    />
+                                    <button
+                                      onClick={() => submitFeedComment(item.id)}
+                                      title="Enviar comentário (Enter)"
+                                      style={{
+                                        position: 'absolute',
+                                        right: 5,
+                                        background: (feedCommentDrafts[item.id] || '').trim() ? '#2a8c97' : 'transparent',
+                                        border: 'none',
+                                        borderRadius: 6,
+                                        width: 24,
+                                        height: 24,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: (feedCommentDrafts[item.id] || '').trim() ? '#fff' : th.muted,
+                                        cursor: (feedCommentDrafts[item.id] || '').trim() ? 'pointer' : 'default',
+                                        transition: 'all 0.15s ease',
+                                      }}
+                                    >
+                                      <Send size={12} />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                            {task.concluida && (
-                              <div style={s('position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;background:rgba(0,0,0,0.3)')}>👁</div>
-                            )}
-                          </Hoverable>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ==================== 2. CONTATOS LP VIEW ==================== */}
+              {isContactsRoute && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 40 }}>
+                  {/* Contatos Header */}
+                  <div style={s('display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap')}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                        <span style={s('width:34px;height:34px;border-radius:10px;background:rgba(42,140,151,0.2);display:flex;align-items:center;justify-content:center;color:#4fd1de')}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                          </svg>
+                        </span>
+                        <h1 style={s(`margin:0;color:${th.text};font-size:28px;font-weight:700`)}>{appT.contactsTitle || 'Contatos & Leads LP'}</h1>
+                      </div>
+                      <p style={s(`margin:0;color:${th.muted};font-size:14px`)}>{appT.contactsSubtitle || 'Solicitações de desenvolvimento de software e sistemas recebidas via formulários das Landing Pages'}</p>
+                    </div>
+
+                    {/* Search & Filter */}
+                    <div style={s('display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;justify-content:flex-end;min-width:280px')}>
+                      <div style={s('position:relative;flex:1;min-width:220px;max-width:320px')}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={th.muted} strokeWidth="2" style={s('position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none')}>
+                          <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input
+                          type="text"
+                          value={contactSearch}
+                          onChange={(e) => setState({ contactSearch: e.target.value })}
+                          placeholder="Buscar por empresa, nome, sistema…"
+                          style={s(`width:100%;box-sizing:border-box;padding:9px 12px 9px 32px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.cardBg};color:${th.text};font-size:12.5px;font-family:${FONT};outline:none`)}
+                        />
+                      </div>
+
+                      <CustomSelect
+                        value={contactFilterStatus}
+                        onChange={(val) => setState({ contactFilterStatus: val })}
+                        options={[
+                          { value: 'todos', label: 'Todos os status' },
+                          { value: 'novo', label: 'Novos Leads' },
+                          { value: 'em_qualificacao', label: 'Em Qualificação' },
+                          { value: 'proposta_enviada', label: 'Proposta Enviada' },
+                          { value: 'fechado', label: 'Contrato Fechado' },
+                          { value: 'arquivado', label: 'Arquivado' },
+                        ]}
+                        th={th}
+                        mainTheme={mainTheme}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Summary Metric Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+                    <div style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px`)}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(79,209,222,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4fd1de' }}>
+                        <Inbox size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: th.text }}>{contacts.length}</div>
+                        <div style={{ fontSize: 12, color: th.muted }}>Total de Solicitações</div>
+                      </div>
+                    </div>
+                    <div style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px`)}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(59,130,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                        <Sparkles size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: th.text }}>{contacts.filter((c) => c.status === 'novo').length}</div>
+                        <div style={{ fontSize: 12, color: th.muted }}>Novos / Sem Contato</div>
+                      </div>
+                    </div>
+                    <div style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px`)}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b' }}>
+                        <FileText size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: th.text }}>{contacts.filter((c) => ['em_qualificacao', 'proposta_enviada'].includes(c.status)).length}</div>
+                        <div style={{ fontSize: 12, color: th.muted }}>Em Negociação / Proposta</div>
+                      </div>
+                    </div>
+                    <div style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px`)}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(34,197,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#22c55e' }}>
+                        <Handshake size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: th.text }}>{contacts.filter((c) => c.status === 'fechado').length}</div>
+                        <div style={{ fontSize: 12, color: th.muted }}>Contratos Fechados</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Contatos Grid / Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
+                    {filteredContacts.length === 0 ? (
+                      <div style={{ ...s(`background:${th.cardBg};border:1px dashed ${th.cardBorder};border-radius:14px;padding:48px 20px;text-align:center;color:${th.muted}`), gridColumn: '1 / -1' }}>
+                        <p style={{ fontSize: 16, margin: 0 }}>Nenhum lead ou solicitação de software encontrada.</p>
+                      </div>
+                    ) : (
+                      filteredContacts.map((contact) => {
+                        const statusConfig = {
+                          novo: { label: 'Novo Lead', bg: '#3b82f6', color: '#fff' },
+                          em_qualificacao: { label: 'Em Qualificação', bg: '#f59e0b', color: '#052226' },
+                          proposta_enviada: { label: 'Proposta Enviada', bg: '#a855f7', color: '#fff' },
+                          fechado: { label: 'Contrato Fechado', bg: '#22c55e', color: '#052226' },
+                          arquivado: { label: 'Arquivado', bg: '#64748b', color: '#fff' },
+                        }[contact.status] || { label: contact.status, bg: '#64748b', color: '#fff' };
+
+                        return (
+                          <div
+                            key={contact.id}
+                            style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:14px;padding:20px;display:flex;flex-direction:column;justify-content:space-between;gap:14px;transition:all 0.2s ease;box-shadow:0 4px 14px rgba(0,0,0,0.1)`)}
+                          >
+                            <div>
+                              {/* Top Bar: Empresa + Status + Data */}
+                              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                                <div>
+                                  <div style={{ fontSize: 16, fontWeight: 700, color: th.text }}>{contact.empresa}</div>
+                                  <div style={{ fontSize: 13, color: th.muted, display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                      <User size={13} style={{ flexShrink: 0 }} /> {contact.nome}
+                                    </span>
+                                    <span>•</span>
+                                    <span style={{ fontSize: 11.5, color: th.surfaceMuted }}>{contact.criadoEm}</span>
+                                  </div>
+                                </div>
+                                <span style={{ background: statusConfig.bg, color: statusConfig.color, fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+                                  {statusConfig.label}
+                                </span>
+                              </div>
+
+                              {/* Requested System Title */}
+                              <div style={{ background: 'rgba(42,140,151,0.12)', border: '1px solid rgba(79,209,222,0.25)', borderRadius: 8, padding: '8px 12px', margin: '10px 0' }}>
+                                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#4fd1de', fontWeight: 700, marginBottom: 2 }}>Sistema Solicitado</div>
+                                <div style={{ fontSize: 13.5, fontWeight: 600, color: th.text }}>{contact.tipoSistema}</div>
+                              </div>
+
+                              {/* Description */}
+                              <p style={{ fontSize: 12.5, color: th.surfaceSubtle, lineHeight: 1.5, margin: '8px 0 12px', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                {contact.descricao}
+                              </p>
+
+                              {/* Info Tags */}
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                                <span style={s(`background:${th.toolbarBtnBg};color:${th.text};font-size:11.5px;padding:4px 8px;border-radius:6px;display:flex;align-items:center;gap:5px`)}>
+                                  <DollarSign size={12} style={{ color: '#22c55e', flexShrink: 0 }} /> {contact.orcamento}
+                                </span>
+                                <span style={s(`background:${th.toolbarBtnBg};color:${th.text};font-size:11.5px;padding:4px 8px;border-radius:6px;display:flex;align-items:center;gap:5px`)}>
+                                  <Clock size={12} style={{ color: '#38bdf8', flexShrink: 0 }} /> {contact.prazo}
+                                </span>
+                                <span style={s(`background:${th.toolbarBtnBg};color:${th.surfaceMuted};font-size:11.5px;padding:4px 8px;border-radius:6px;display:flex;align-items:center;gap:5px`)}>
+                                  <MapPin size={12} style={{ color: '#f59e0b', flexShrink: 0 }} /> {contact.origem}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Actions & Contact Links */}
+                            <div style={{ borderTop: `1px solid ${th.cardBorder}`, paddingTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <a
+                                  href={`tel:${contact.telefone}`}
+                                  style={s(`background:${th.toolbarBtnBg};border:1px solid ${th.cardBorder};border-radius:6px;padding:5px 9px;color:${th.text};font-size:11.5px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:5px`)}
+                                  title={`Ligar / WhatsApp: ${contact.telefone}`}
+                                >
+                                  <Phone size={12} style={{ flexShrink: 0 }} /> {contact.telefone}
+                                </a>
+                                <a
+                                  href={`mailto:${contact.email}`}
+                                  style={s(`background:${th.toolbarBtnBg};border:1px solid ${th.cardBorder};border-radius:6px;padding:5px 9px;color:${th.text};font-size:11.5px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:5px`)}
+                                  title={`Enviar Email: ${contact.email}`}
+                                >
+                                  <Mail size={12} style={{ flexShrink: 0 }} /> Email
+                                </a>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <button
+                                  onClick={() => setState({ contactModalLead: contact })}
+                                  style={s(`background:#2a8c97;border:none;border-radius:6px;padding:6px 12px;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:${FONT}`)}
+                                >
+                                  Ver Lead
+                                </button>
+                                <button
+                                  onClick={() => deleteContactLead(contact.id)}
+                                  title="Excluir Lead"
+                                  style={s(`background:transparent;border:none;border-radius:6px;padding:6px 8px;color:${th.surfaceMuted};cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s ease`)}
+                                  onMouseEnter={(e) => { e.currentTarget.style.color = '#ef4444'; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.color = th.surfaceMuted; }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ==================== 3. USER BOARD VIEW (Kanban / Tabela) ==================== */}
+              {isUserRoute && (
+                <div>
+                  <div style={s('display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:24px')}>
+                    <div>
+                      <h1 style={s(`margin:0 0 6px;color:${th.text};font-size:28px;font-weight:700`)}>{currentUser.name}</h1>
+                      <p style={s(`margin:0;color:${th.muted};font-size:14px`)}>{userTasksRaw.length + ' ' + appT.tasksAssigned}</p>
+                    </div>
+                    <div style={s('display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;justify-content:flex-end;min-width:280px')}>
+                      <div style={s('position:relative;flex:1;min-width:200px;max-width:320px')}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={th.muted} strokeWidth="2" style={s('position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none')}>
+                          <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setState({ searchQuery: e.target.value })}
+                          placeholder={appT.searchPlaceholder}
+                          style={s(`width:100%;box-sizing:border-box;padding:9px 12px 9px 32px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.cardBg};color:${th.text};font-size:12.5px;font-family:${FONT};outline:none`)}
+                        />
+                      </div>
+                      <CustomSelect
+                        value={filterProjeto}
+                        onChange={(val) => setState({ filterProjeto: val })}
+                        options={[
+                          { value: '', label: appT.allProjects },
+                          ...projectOptions.map((proj) => ({ value: proj, label: proj })),
+                        ]}
+                        th={th}
+                        mainTheme={mainTheme}
+                      />
+                      <input type="date" value={filterDateFrom} onChange={(e) => setState({ filterDateFrom: e.target.value })} style={{ ...s(`padding:8px 10px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.cardBg};color:${th.text};font-size:12px;font-family:${FONT};outline:none`), colorScheme: mainTheme === 'dark' ? 'dark' : 'light' }} />
+                      <input type="date" value={filterDateTo} onChange={(e) => setState({ filterDateTo: e.target.value })} style={{ ...s(`padding:8px 10px;border-radius:8px;border:1px solid ${th.cardBorder};background:${th.cardBg};color:${th.text};font-size:12px;font-family:${FONT};outline:none`), colorScheme: mainTheme === 'dark' ? 'dark' : 'light' }} />
+
+                      <Hoverable
+                        as="button"
+                        onClick={() => openNewTaskModal()}
+                        base={s(`display:flex;align-items:center;gap:6px;background:#2a8c97;border:none;border-radius:8px;padding:9px 16px;color:#fff;cursor:pointer;font-family:${FONT};font-size:12.5px;font-weight:700;transition:all 0.15s ease;box-shadow:0 2px 8px rgba(42,140,151,0.3)`)}
+                        hover={{ background: '#236f78', transform: 'translateY(-1px)' }}
+                      >
+                        <Plus size={14} />
+                        <span>{appT.newTaskBtn || '+ Nova Tarefa'}</span>
+                      </Hoverable>
+                    </div>
+                  </div>
+
+                  <div>
+                    {boardView === 'kanban' && (
+                      <div className="hide-scrollbar" style={s('display:flex;gap:16px;overflow-x:auto;padding-bottom:40px;scrollbar-width:none;-ms-overflow-style:none')}>
+                        {kanbanColumns.map((col) => (
+                          <div key={col.id} style={s('flex:0 0 250px;display:flex;flex-direction:column;gap:12px')}>
+                            <div style={s('display:flex;align-items:center;justify-content:space-between;padding:0 4px')}>
+                              <span style={s(`display:flex;align-items:center;gap:6px;color:${th.text};font-size:12.5px;font-weight:700;letter-spacing:0.03em`)}>
+                                <span style={s(`width:8px;height:8px;border-radius:50%;background:${col.color};flex-shrink:0`)}></span>
+                                {col.label}
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={s(`color:${th.muted};font-size:11.5px;background:${th.cardBg};padding:2px 8px;border-radius:999px`)}>{col.count}</span>
+                                <button
+                                  onClick={() => openNewTaskModal(col.id)}
+                                  title={`Adicionar tarefa em "${col.label}"`}
+                                  style={s(`background:${th.cardBg};border:1px solid ${th.cardBorder};border-radius:6px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;color:${th.muted};cursor:pointer;transition:all 0.15s`)}
+                                  onMouseEnter={(e) => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.background = '#2a8c97'; e.currentTarget.style.borderColor = '#2a8c97'; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.color = th.muted; e.currentTarget.style.background = th.cardBg; e.currentTarget.style.borderColor = th.cardBorder; }}
+                                >
+                                  <Plus size={12} />
+                                </button>
+                              </div>
+                            </div>
+                            {col.tasks.map((task) => (
+                              <Hoverable
+                                key={task.id}
+                                as="div"
+                                onClick={task.cardClick}
+                                base={{
+                                  position: 'relative',
+                                  background: th.cardBg,
+                                  borderTop: `1px solid ${th.cardBorder}`,
+                                  borderRight: `1px solid ${th.cardBorder}`,
+                                  borderBottom: `1px solid ${th.cardBorder}`,
+                                  borderLeft: `3px solid ${task.statusColor}`,
+                                  borderRadius: 10,
+                                  padding: 14,
+                                  cursor: 'pointer',
+                                  overflow: 'hidden',
+                                }}
+                                hover={{
+                                  borderTop: `1px solid ${th.accent}`,
+                                  borderRight: `1px solid ${th.accent}`,
+                                  borderBottom: `1px solid ${th.accent}`,
+                                }}
+                              >
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, opacity: task.cardOpacity }}>
+                                  <span style={s(`color:${th.muted};font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em`)}>{task.projeto}</span>
+                                  <span style={s(`color:${th.text};font-size:14px;font-weight:600;line-height:1.3`)}>{task.titulo}</span>
+                                  <span style={s(`color:${th.muted};font-size:12px;margin-bottom:6px`)}>{task.tarefa}</span>
+                                  <span style={{ color: task.prazoColor, fontSize: 11, fontStyle: task.prazoStyle }}>{task.prazoLabel}</span>
+                                </div>
+                                {task.concluida && (
+                                  <div style={s('position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);border-radius:10px')}>
+                                    <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(34,197,94,0.2)', border: '1px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#22c55e' }}>
+                                      <CheckCircle2 size={20} />
+                                    </div>
+                                  </div>
+                                )}
+                              </Hoverable>
+                            ))}
+                          </div>
                         ))}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    )}
 
-                {boardView === 'table' && (
-                  <div className="hide-scrollbar" style={s('overflow-x:auto;padding-bottom:40px;scrollbar-width:none;-ms-overflow-style:none')}>
-                    <table style={s('width:100%;border-collapse:collapse;background:transparent;min-width:760px')}>
-                      <thead>
-                        <tr>
-                          {[appT.colTitulo, appT.colProjeto, appT.colTarefa, appT.colDetalhes, appT.colCriadoEm, appT.colPrazo, appT.colStatus, appT.colAcoes].map((label, i) => (
-                            <th key={i} style={s(`text-align:left;padding:0 12px 10px;color:${th.muted};font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid ${th.cardBorder}`)}>{label}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {userTasks.map((task) => (
-                          <tr key={task.id} style={s(`border-bottom:1px solid ${th.cardBorder}`)}>
-                            <td style={{ padding: '14px 12px 14px 4px', color: th.text, fontSize: 13.5, fontWeight: 600, opacity: task.rowOpacity }}>{task.titulo}</td>
-                            <td style={{ padding: '14px 12px', color: th.muted, fontSize: 13, opacity: task.rowOpacity }}>{task.projeto}</td>
-                            <td style={{ padding: '14px 12px', color: th.muted, fontSize: 13, opacity: task.rowOpacity }}>{task.tarefa}</td>
-                            <td style={{ padding: '14px 12px', opacity: task.rowOpacity }}>
-                              <button onClick={task.openDetails} style={s(`background:none;border:none;color:${th.accent};cursor:pointer;font-size:13px;font-weight:600;padding:0;text-decoration:underline;font-family:${FONT}`)}>{appT.verDetalhes}</button>
-                            </td>
-                            <td style={{ padding: '14px 12px', color: th.muted, fontSize: 12.5, opacity: task.rowOpacity }}>{task.criadoEm}</td>
-                            <td style={{ padding: '14px 12px', color: task.prazoColor, fontSize: 12.5, fontStyle: task.prazoStyle, opacity: task.rowOpacity }}>{task.prazoLabel}</td>
-                            <td style={{ padding: '14px 12px', opacity: task.rowOpacity }}>
-                              <span style={s(`display:inline-block;background:${task.statusColor};color:#052226;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap`)}>{task.statusLabel}</span>
-                            </td>
-                            <td style={s('padding:14px 4px 14px 12px')}>
-                              {task.concluida ? (
-                                <button onClick={task.openDetails} aria-label="Ver" style={s(`background:${th.toolbarBtnBg};border:none;border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:${th.toolbarIcon};cursor:pointer;font-size:14px`)}>👁</button>
-                              ) : (
-                                <button onClick={task.openAction} aria-label="Ações" style={s(`background:${th.toolbarBtnBg};border:none;border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:${th.toolbarIcon};cursor:pointer;transition:transform 0.15s ease`)}>
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg>
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    {boardView === 'table' && (
+                      <div className="hide-scrollbar" style={s('overflow-x:auto;padding-bottom:40px;scrollbar-width:none;-ms-overflow-style:none')}>
+                        <table style={s('width:100%;border-collapse:collapse;background:transparent;min-width:760px')}>
+                          <thead>
+                            <tr>
+                              {[appT.colTitulo, appT.colProjeto, appT.colTarefa, appT.colDetalhes, appT.colCriadoEm, appT.colPrazo, appT.colStatus, appT.colAcoes].map((label, i) => (
+                                <th key={i} style={s(`text-align:left;padding:0 12px 10px;color:${th.muted};font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid ${th.cardBorder}`)}>{label}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {userTasks.map((task) => (
+                              <tr key={task.id} style={s(`border-bottom:1px solid ${th.cardBorder}`)}>
+                                <td style={{ padding: '14px 12px 14px 4px', color: th.text, fontSize: 13.5, fontWeight: 600, opacity: task.rowOpacity }}>{task.titulo}</td>
+                                <td style={{ padding: '14px 12px', color: th.muted, fontSize: 13, opacity: task.rowOpacity }}>{task.projeto}</td>
+                                <td style={{ padding: '14px 12px', color: th.muted, fontSize: 13, opacity: task.rowOpacity }}>{task.tarefa}</td>
+                                <td style={{ padding: '14px 12px', opacity: task.rowOpacity }}>
+                                  <button onClick={task.openDetails} style={s(`background:none;border:none;color:${th.accent};cursor:pointer;font-size:13px;font-weight:600;padding:0;text-decoration:underline;font-family:${FONT}`)}>{appT.verDetalhes}</button>
+                                </td>
+                                <td style={{ padding: '14px 12px', color: th.muted, fontSize: 12.5, opacity: task.rowOpacity }}>{task.criadoEm}</td>
+                                <td style={{ padding: '14px 12px', color: task.prazoColor, fontSize: 12.5, fontStyle: task.prazoStyle, opacity: task.rowOpacity }}>{task.prazoLabel}</td>
+                                <td style={{ padding: '14px 12px', opacity: task.rowOpacity }}>
+                                  <span style={s(`display:inline-block;background:${task.statusColor};color:#052226;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap`)}>{task.statusLabel}</span>
+                                </td>
+                                <td style={s('padding:14px 4px 14px 12px')}>
+                                  {task.concluida ? (
+                                    <button onClick={task.openDetails} aria-label="Ver" style={s(`background:${th.toolbarBtnBg};border:none;border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:${th.toolbarIcon};cursor:pointer`)}>
+                                      <Eye size={14} />
+                                    </button>
+                                  ) : (
+                                    <button onClick={task.openAction} aria-label="Ações" style={s(`background:${th.toolbarBtnBg};border:none;border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:${th.toolbarIcon};cursor:pointer;transition:transform 0.15s ease`)}>
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg>
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </main>
 
-          {detailsTaskId && (
-            <div onClick={() => setState({ detailsTaskId: null })} style={s(`position:fixed;inset:0;background:${th.overlayBg};z-index:50;display:flex;align-items:center;justify-content:center;padding:20px`)}>
-              <div onClick={(e) => e.stopPropagation()} style={{ ...s(`width:440px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5)`), animation: 'slideUpIn 0.22s ease both' }}>
+          {/* Task Details Modal */}
+          <AnimatedModal
+            isOpen={Boolean(detailsTaskId && detailsTask)}
+            onClose={() => setState({ detailsTaskId: null })}
+            zIndex={50}
+            overlayBg={th.overlayBg}
+            contentStyle={s(`width:440px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5)`)}
+          >
+            {detailsTask && (
+              <>
                 <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:18px')}>
                   <h2 style={s(`margin:0;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{detailsTask.titulo}</h2>
                   <Hoverable onClick={() => setState({ detailsTaskId: null })} base={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted};transition:transform 0.15s ease`)} hover={{ transform: 'scale(1.15)' }}>
@@ -1537,7 +3064,10 @@ export default function App() {
                   </div>
                   <div>
                     <div style={s(`color:${th.surfaceMuted};font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px`)}>{appT.fieldResponsavel}</div>
-                    <div style={s(`color:${th.surfaceText};font-size:13.5px`)}>{detailsTask.userName}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
+                      <UserAvatar user={users.find((u) => u.id === detailsTask.userId)} size={20} fontSize={9.5} />
+                      <span style={s(`color:${th.surfaceText};font-size:13.5px`)}>{detailsTask.userName}</span>
+                    </div>
                   </div>
                 </div>
                 {detailsTask.concluida && (
@@ -1545,101 +3075,564 @@ export default function App() {
                     {appT.reactivateLabel}
                   </Hoverable>
                 )}
+              </>
+            )}
+          </AnimatedModal>
+
+          {/* ==================== NOVA TAREFA MODAL ==================== */}
+          <AnimatedModal
+            isOpen={newTaskModalOpen}
+            onClose={() => setState({ newTaskModalOpen: false })}
+            zIndex={55}
+            overlayBg={th.overlayBg}
+            contentStyle={s(`width:520px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5);max-height:88vh;overflow-y:auto;box-sizing:border-box`)}
+          >
+            <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:18px')}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(42,140,151,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4fd1de' }}>
+                  <Plus size={16} />
+                </div>
+                <h2 style={s(`margin:0;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{appT.newTaskModalTitle || 'Criar Nova Tarefa'}</h2>
+              </div>
+              <button onClick={() => setState({ newTaskModalOpen: false })} style={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted};display:flex;align-items:center;justify-content:center;padding:4px`)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* 1. Título */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldTitulo} *</label>
+              <input
+                type="text"
+                autoFocus
+                value={newTaskTitulo}
+                onChange={(e) => setState({ newTaskTitulo: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitNewTask(); }}
+                placeholder="Ex: Desenvolver fluxo de autenticação e permissões"
+                style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+              />
+            </div>
+
+            {/* 2. Projeto e Categoria / Tarefa */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldProjeto} *</label>
+                <input
+                  type="text"
+                  list="project-suggestions-datalist"
+                  value={newTaskProjeto}
+                  onChange={(e) => setState({ newTaskProjeto: e.target.value })}
+                  placeholder="Ex: Premium Office, DapZap..."
+                  style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+                />
+                <datalist id="project-suggestions-datalist">
+                  {[...new Set([...tasks.map((t) => t.projeto), 'Premium Office', 'Blindagem Financeira', 'Automação', 'DAP Faculty', 'Business Inteligence', 'DapZap', 'Free'])].filter(Boolean).map((p) => (
+                    <option key={p} value={p} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldTarefa}</label>
+                <input
+                  type="text"
+                  value={newTaskTarefa}
+                  onChange={(e) => setState({ newTaskTarefa: e.target.value })}
+                  placeholder="Ex: Desenvolvimento, Testes..."
+                  style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+                />
               </div>
             </div>
-          )}
 
-          {actionTaskId && (
-            <div onClick={() => setState({ actionTaskId: null })} style={s(`position:fixed;inset:0;background:${th.overlayBg};z-index:50;display:flex;align-items:center;justify-content:center;padding:20px`)}>
-              <div onClick={(e) => e.stopPropagation()} style={{ ...s(`width:460px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5);max-height:88vh;overflow-y:auto;box-sizing:border-box`), animation: 'slideUpIn 0.22s ease both' }}>
-                <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:20px')}>
-                  <h2 style={s(`margin:0;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{appT.actionModalTitle}</h2>
-                  <Hoverable onClick={() => setState({ actionTaskId: null })} base={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted};transition:transform 0.15s ease`)} hover={{ transform: 'scale(1.15)' }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            {/* 3. Detalhes e Especificações */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldDetalhes}</label>
+              <textarea
+                rows={3}
+                value={newTaskDetalhes}
+                onChange={(e) => setState({ newTaskDetalhes: e.target.value })}
+                placeholder="Detalhes, requisitos, regras de negócio e especificações técnicas da tarefa..."
+                style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none;resize:vertical`)}
+              />
+            </div>
+
+            {/* 4. Datas: Criação e Prazo */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldDataCriacao}</label>
+                <input
+                  type="date"
+                  value={newTaskCriadoEm}
+                  onChange={(e) => setState({ newTaskCriadoEm: e.target.value })}
+                  style={{ ...s(`width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:12.5px;font-family:${FONT};outline:none`), colorScheme: mainTheme === 'dark' ? 'dark' : 'light' }}
+                />
+              </div>
+
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldPrazo}</label>
+                <input
+                  type="date"
+                  value={newTaskPrazo}
+                  onChange={(e) => setState({ newTaskPrazo: e.target.value })}
+                  style={{ ...s(`width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:12.5px;font-family:${FONT};outline:none`), colorScheme: mainTheme === 'dark' ? 'dark' : 'light' }}
+                />
+              </div>
+            </div>
+
+            {/* 5. Status da Tarefa */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:6px`)}>{appT.fieldStatus}</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {newTaskStatusOptions.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={opt.select}
+                    style={{
+                      border: opt.border,
+                      cursor: 'pointer',
+                      padding: '5px 12px',
+                      borderRadius: 999,
+                      fontFamily: FONT,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      background: opt.bg,
+                      color: opt.color,
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 6. Responsável */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:6px`)}>{appT.fieldResponsavel}</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {newTaskUserOptions.map((uopt) => (
+                  <button
+                    key={uopt.id}
+                    type="button"
+                    onClick={uopt.select}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      border: uopt.border,
+                      cursor: 'pointer',
+                      padding: '4px 10px 4px 4px',
+                      borderRadius: 999,
+                      fontFamily: FONT,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: uopt.bg,
+                      color: uopt.color,
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    <UserAvatar user={uopt} size={20} fontSize={9.5} />
+                    <span>{uopt.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setState({ newTaskModalOpen: false })}
+                style={s(`padding:9px 16px;border-radius:6px;border:1px solid ${th.inputBorder};background:none;color:${th.surfaceText};cursor:pointer;font-family:${FONT};font-size:13px`)}
+              >
+                {appT.cancelLabel || 'Cancelar'}
+              </button>
+              <Hoverable
+                as="button"
+                onClick={submitNewTask}
+                base={s('padding:9px 20px;border-radius:6px;border:none;background:#2a8c97;color:#fff;cursor:pointer;font-family:'+FONT+';font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;transition:background 0.15s')}
+                hover={{ background: '#236f78' }}
+              >
+                <Plus size={14} />
+                <span>{appT.createTaskLabel || 'Criar Tarefa'}</span>
+              </Hoverable>
+            </div>
+          </AnimatedModal>
+
+          {/* Task Edit Action Modal */}
+          <AnimatedModal
+            isOpen={Boolean(actionTaskId)}
+            onClose={() => setState({ actionTaskId: null })}
+            zIndex={50}
+            overlayBg={th.overlayBg}
+            contentStyle={s(`width:480px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5);max-height:88vh;overflow-y:auto;box-sizing:border-box`)}
+          >
+            <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:20px')}>
+              <h2 style={s(`margin:0;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{appT.actionModalTitle}</h2>
+              <Hoverable onClick={() => setState({ actionTaskId: null })} base={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted};transition:transform 0.15s ease`)} hover={{ transform: 'scale(1.15)' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </Hoverable>
+            </div>
+
+            <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldTitulo}</label>
+            <input value={draftTitulo} onChange={(e) => setState({ draftTitulo: e.target.value })} style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none;margin-bottom:12px`)} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldProjeto}</label>
+                <input value={draftProjeto} onChange={(e) => setState({ draftProjeto: e.target.value })} style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
+              </div>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldTarefa}</label>
+                <input value={draftTarefa} onChange={(e) => setState({ draftTarefa: e.target.value })} style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldDetalhes}</label>
+              <textarea rows={3} value={draftDetalhes} onChange={(e) => setState({ draftDetalhes: e.target.value })} style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none;resize:vertical`)} />
+            </div>
+
+            <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:5px`)}>{appT.fieldPrazo}</label>
+            <input value={draftPrazo} onChange={(e) => setState({ draftPrazo: e.target.value })} placeholder={appT.prazoPlaceholder} style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none;margin-bottom:14px`)} />
+
+            <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:6px`)}>{appT.fieldStatus}</label>
+            <div style={s('display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px')}>
+              {statusOptions.map((opt) => (
+                <button key={opt.id} onClick={opt.select} style={s(`border:none;cursor:pointer;padding:5px 12px;border-radius:999px;font-family:${FONT};font-size:11.5px;font-weight:700;background:${opt.bg};color:${opt.color}`)}>{opt.label}</button>
+              ))}
+            </div>
+
+            <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;font-weight:600;margin-bottom:6px`)}>{appT.fieldResponsavel}</label>
+            <div style={s('display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px')}>
+              {userOptions.map((uopt) => (
+                <button key={uopt.id} onClick={uopt.select} style={s(`display:flex;align-items:center;gap:6px;border:none;cursor:pointer;padding:4px 10px 4px 4px;border-radius:999px;font-family:${FONT};font-size:12px;font-weight:600;background:${uopt.bg};color:${uopt.color}`)}>
+                  <UserAvatar user={uopt} size={18} fontSize={9} />
+                  {uopt.name}
+                </button>
+              ))}
+            </div>
+
+            <label style={s(`display:flex;align-items:center;gap:8px;color:${th.surfaceSubtle};font-size:12.5px;margin-bottom:20px;cursor:pointer`)}>
+              <input type="checkbox" checked={draftConcluida} onChange={(e) => setState({ draftConcluida: e.target.checked })} />
+              {appT.completedLabel}
+            </label>
+
+            <div style={s('display:flex;align-items:center;justify-content:space-between;gap:10px')}>
+              <Hoverable onClick={deleteTask} base={s('padding:9px 16px;border-radius:6px;border:none;background:rgba(192,67,60,0.15);color:#e5847c;cursor:pointer;font-family:'+FONT+';font-size:13px;font-weight:600')} hover={{ background: 'rgba(192,67,60,0.28)' }}>
+                {appT.deleteLabel}
+              </Hoverable>
+              <div style={s('display:flex;gap:10px')}>
+                <button onClick={() => setState({ actionTaskId: null })} style={s(`padding:9px 16px;border-radius:6px;border:1px solid ${th.inputBorder};background:none;color:${th.surfaceText};cursor:pointer;font-family:${FONT};font-size:13px`)}>{appT.cancelLabel}</button>
+                <Hoverable onClick={saveTask} base={s('padding:9px 18px;border-radius:6px;border:none;background:#2a8c97;color:#fff;cursor:pointer;font-family:'+FONT+';font-size:13px;font-weight:600')} hover={{ background: '#236f78' }}>
+                  {appT.saveLabel}
+                </Hoverable>
+              </div>
+            </div>
+          </AnimatedModal>
+
+          {/* ==================== CONFIGURAÇÕES MODAL ==================== */}
+          <AnimatedModal
+            isOpen={settingsModalOpen}
+            onClose={() => setState({ settingsModalOpen: false })}
+            zIndex={50}
+            overlayBg={th.overlayBg}
+            contentStyle={s(`width:440px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5);display:flex;flex-direction:column;gap:16px`)}
+          >
+            {/* Header */}
+            <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:4px')}>
+              <h2 style={s(`margin:0;color:${th.surfaceText};font-size:19px;font-weight:700`)}>{appT.settingsTitle}</h2>
+              <Hoverable onClick={() => setState({ settingsModalOpen: false })} base={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted};transition:transform 0.15s ease`)} hover={{ transform: 'scale(1.15)' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </Hoverable>
+            </div>
+
+            {/* 1. Cores / Tema */}
+            <div style={s(`display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid ${th.modalBorder}`)}>
+              <div>
+                <div style={s(`color:${th.surfaceText};font-size:14px;font-weight:600`)}>{appT.settingsAppearance || 'Aparência & Cores'}</div>
+                <div style={s(`color:${th.surfaceMuted};font-size:11.5px;margin-top:2px`)}>Escuro, Porcelana e Sépia</div>
+              </div>
+              {themeCircles}
+            </div>
+
+            {/* 2. Modo de Visualização Padrão */}
+            <div style={s(`display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid ${th.modalBorder}`)}>
+              <div>
+                <div style={s(`color:${th.surfaceText};font-size:14px;font-weight:600`)}>{appT.settingsViewMode || 'Modo de visualização'}</div>
+                <div style={s(`color:${th.surfaceMuted};font-size:11.5px;margin-top:2px`)}>Kanban ou Tabela</div>
+              </div>
+              {viewModeButtons}
+            </div>
+
+            {/* 3. Foto de Perfil */}
+            <div style={s(`padding:12px 0;border-bottom:1px solid ${th.modalBorder};display:flex;align-items:center;justify-content:space-between;gap:14px`)}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ position: 'relative' }}>
+                  <UserAvatar user={myUserAccount} size={50} fontSize={17} />
+                  <label
+                    htmlFor="avatar-upload-file-input"
+                    title="Subir foto de perfil"
+                    style={{
+                      position: 'absolute',
+                      bottom: -2,
+                      right: -2,
+                      width: 22,
+                      height: 22,
+                      borderRadius: '50%',
+                      background: '#2a8c97',
+                      color: '#fff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                      border: `2px solid ${th.modalBg}`,
+                      transition: 'transform 0.15s ease',
+                    }}
+                  >
+                    <Camera size={11} />
+                  </label>
+                </div>
+                <div>
+                  <div style={s(`color:${th.surfaceText};font-size:14px;font-weight:600`)}>{appT.settingsProfilePhoto || 'Foto do perfil'}</div>
+                  <div style={s(`color:${th.surfaceMuted};font-size:11.5px;margin-top:2px`)}>{appT.settingsPhotoRequirements || 'PNG, JPG ou WebP (máx. 5MB)'}</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  id="avatar-upload-file-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarUpload}
+                  style={{ display: 'none' }}
+                />
+                <Hoverable
+                  as="label"
+                  htmlFor="avatar-upload-file-input"
+                  base={s(`padding:7px 14px;border-radius:8px;border:1px solid rgba(79,209,222,0.35);background:rgba(42,140,151,0.14);color:#4fd1de;font-size:12px;font-weight:700;cursor:pointer;font-family:${FONT};display:flex;align-items:center;gap:6px;transition:all 0.15s`)}
+                  hover={{ background: 'rgba(42,140,151,0.28)', borderColor: '#4fd1de' }}
+                >
+                  <Upload size={13} />
+                  <span>{appT.settingsUploadPhoto || 'Subir Foto'}</span>
+                </Hoverable>
+                {myUserAccount.avatarUrl && (
+                  <Hoverable
+                    onClick={handleRemoveAvatar}
+                    title="Remover foto"
+                    base={s(`padding:7px 10px;border-radius:8px;border:1px solid transparent;background:rgba(239,68,68,0.12);color:#ef4444;font-size:12px;font-weight:600;cursor:pointer;font-family:${FONT};display:flex;align-items:center;gap:4px;transition:all 0.15s`)}
+                    hover={{ background: 'rgba(239,68,68,0.22)' }}
+                  >
+                    <Trash2 size={12} />
+                    <span>{appT.settingsRemovePhoto || 'Remover'}</span>
                   </Hoverable>
-                </div>
+                )}
+              </div>
+            </div>
 
-                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12.5px;margin-bottom:6px`)}>{appT.fieldTitulo}</label>
-                <input value={draftTitulo} onChange={(e) => setState({ draftTitulo: e.target.value })} style={s(`width:100%;box-sizing:border-box;padding:11px 14px;border-radius:10px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13.5px;font-family:${FONT};outline:none;margin-bottom:16px`)} />
+            {/* 4. Alterar seu próprio nome */}
+            <div style={s(`padding:12px 0;border-bottom:1px solid ${th.modalBorder};display:flex;flex-direction:column;gap:8px`)}>
+              <label style={s(`color:${th.surfaceText};font-size:14px;font-weight:600`)}>{appT.settingsDisplayName || 'Seu nome no sistema'}</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  value={editDisplayName}
+                  onChange={(e) => setState({ editDisplayName: e.target.value })}
+                  placeholder="Seu nome de exibição"
+                  style={s(`flex:1;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+                />
+                <button
+                  onClick={handleSaveDisplayName}
+                  style={s(`padding:9px 16px;border-radius:8px;border:none;background:#2a8c97;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;font-family:${FONT};white-space:nowrap;transition:background 0.15s`)}
+                >
+                  {appT.settingsSaveName || 'Salvar'}
+                </button>
+              </div>
+            </div>
 
-                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12.5px;margin-bottom:6px`)}>{appT.fieldPrazo}</label>
-                <input value={draftPrazo} onChange={(e) => setState({ draftPrazo: e.target.value })} placeholder={appT.prazoPlaceholder} style={s(`width:100%;box-sizing:border-box;padding:11px 14px;border-radius:10px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13.5px;font-family:${FONT};outline:none;margin-bottom:16px`)} />
+            {/* 4. Idioma */}
+            <div style={s(`display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid ${th.modalBorder}`)}>
+              <span style={s(`color:${th.surfaceSubtle};font-size:14px`)}>{appT.settingsLanguage}</span>
+              <div style={s(`display:flex;gap:2px;background:${th.toolbarBtnBg};border:0px;border-radius:5px;padding:2px`)}>{langSwitch}</div>
+            </div>
 
-                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12.5px;margin-bottom:8px`)}>{appT.fieldStatus}</label>
-                <div style={s('display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px')}>
-                  {statusOptions.map((opt) => (
-                    <button key={opt.id} onClick={opt.select} style={s(`border:none;cursor:pointer;padding:6px 12px;border-radius:999px;font-family:${FONT};font-size:12px;font-weight:600;background:${opt.bg};color:${opt.color}`)}>{opt.label}</button>
-                  ))}
-                </div>
+            {/* 5. Notificações */}
+            <div style={s('display:flex;align-items:center;justify-content:space-between;padding:10px 0')}>
+              <span style={s(`color:${th.surfaceSubtle};font-size:14px`)}>{appT.settingsNotifications}</span>
+              <button onClick={() => setState((s2) => ({ notifications: !s2.notifications }))} style={s(`width:34px;height:19px;border-radius:999px;border:none;cursor:pointer;padding:2px;display:flex;align-items:center;background:${notifBg};justify-content:${notifJustify};transition:background 0.15s`)}>
+                <span style={s('width:15px;height:15px;border-radius:50%;background:#fff;display:block')}></span>
+              </button>
+            </div>
+          </AnimatedModal>
 
-                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12.5px;margin-bottom:8px`)}>{appT.fieldResponsavel}</label>
-                <div style={s('display:flex;flex-wrap:wrap;gap:6px;margin-bottom:24px')}>
-                  {userOptions.map((uopt) => (
-                    <button key={uopt.id} onClick={uopt.select} style={s(`display:flex;align-items:center;gap:6px;border:none;cursor:pointer;padding:5px 12px 5px 5px;border-radius:999px;font-family:${FONT};font-size:12px;font-weight:600;background:${uopt.bg};color:${uopt.color}`)}>
-                      <span style={s(`width:18px;height:18px;border-radius:50%;background:${uopt.avatarBg};display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700`)}>{uopt.initials}</span>
-                      {uopt.name}
-                    </button>
-                  ))}
-                </div>
+          {/* ==================== NOVO CONTATO / LEAD MODAL ==================== */}
+          <AnimatedModal
+            isOpen={newContactModalOpen}
+            onClose={() => setState({ newContactModalOpen: false })}
+            zIndex={55}
+            overlayBg={th.overlayBg}
+            contentStyle={s(`width:520px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5);max-height:88vh;overflow-y:auto;box-sizing:border-box`)}
+          >
+            <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:16px')}>
+              <h2 style={s(`margin:0;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{appT.newContactModalTitle || 'Novo Contato / Lead de Software'}</h2>
+              <button onClick={() => setState({ newContactModalOpen: false })} style={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted}`)}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
 
-                <label style={s(`display:flex;align-items:center;gap:8px;color:${th.surfaceSubtle};font-size:12.5px;margin-bottom:20px;cursor:pointer`)}>
-                  <input type="checkbox" checked={draftConcluida} onChange={(e) => setState({ draftConcluida: e.target.checked })} />
-                  {appT.completedLabel}
-                </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;margin-bottom:4px`)}>Nome do Contato *</label>
+                <input type="text" value={newContactNome} onChange={(e) => setState({ newContactNome: e.target.value })} placeholder="Ex: Rodrigo Mendes" style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
+              </div>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;margin-bottom:4px`)}>Empresa / Negócio *</label>
+                <input type="text" value={newContactEmpresa} onChange={(e) => setState({ newContactEmpresa: e.target.value })} placeholder="Ex: Nexus Logística" style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
+              </div>
+            </div>
 
-                <div style={s('display:flex;align-items:center;justify-content:space-between;gap:10px')}>
-                  <Hoverable onClick={deleteTask} base={s('padding:10px 16px;border-radius:5px;border:none;background:rgba(192,67,60,0.15);color:#e5847c;cursor:pointer;font-family:'+FONT+';font-size:13px;font-weight:600')} hover={{ background: 'rgba(192,67,60,0.28)' }}>
-                    {appT.deleteLabel}
-                  </Hoverable>
-                  <div style={s('display:flex;gap:10px')}>
-                    <button onClick={() => setState({ actionTaskId: null })} style={s(`padding:10px 18px;border-radius:5px;border:1px solid ${th.inputBorder};background:none;color:${th.surfaceText};cursor:pointer;font-family:${FONT};font-size:13.5px`)}>{appT.cancelLabel}</button>
-                    <Hoverable onClick={saveTask} base={s('padding:10px 18px;border-radius:5px;border:none;background:#2a8c97;color:#fff;cursor:pointer;font-family:'+FONT+';font-size:13.5px;font-weight:600')} hover={{ background: '#236f78' }}>
-                      {appT.saveLabel}
-                    </Hoverable>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;margin-bottom:4px`)}>Email</label>
+                <input type="email" value={newContactEmail} onChange={(e) => setState({ newContactEmail: e.target.value })} placeholder="rodrigo@empresa.com.br" style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
+              </div>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;margin-bottom:4px`)}>Telefone / WhatsApp</label>
+                <input type="text" value={newContactTelefone} onChange={(e) => setState({ newContactTelefone: e.target.value })} placeholder="+55 11 98888-7777" style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;margin-bottom:4px`)}>Tipo de Sistema / Software Solicitado</label>
+              <input type="text" value={newContactTipo} onChange={(e) => setState({ newContactTipo: e.target.value })} placeholder="Ex: Plataforma SaaS + Painel BI + Bot WhatsApp" style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;margin-bottom:4px`)}>Orçamento Estimado</label>
+                <input type="text" value={newContactOrcamento} onChange={(e) => setState({ newContactOrcamento: e.target.value })} placeholder="Ex: R$ 20.000 - R$ 40.000" style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
+              </div>
+              <div>
+                <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;margin-bottom:4px`)}>Prazo Desejado</label>
+                <input type="text" value={newContactPrazo} onChange={(e) => setState({ newContactPrazo: e.target.value })} placeholder="Ex: 45 a 60 dias" style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12px;margin-bottom:4px`)}>Descrição dos Requisitos & Escopo</label>
+              <textarea rows={3} value={newContactDescricao} onChange={(e) => setState({ newContactDescricao: e.target.value })} placeholder="Descreva os módulos, integrações e objetivos que o cliente detalhou no formulário da LP..." style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none;resize:vertical`)} />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setState({ newContactModalOpen: false })} style={s(`padding:10px 18px;border-radius:6px;border:1px solid ${th.inputBorder};background:none;color:${th.surfaceText};cursor:pointer;font-family:${FONT};font-size:13px`)}>Cancelar</button>
+              <button onClick={submitNewContact} style={s(`padding:10px 20px;border-radius:6px;border:none;background:#2a8c97;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:${FONT}`)}>{appT.saveContactLabel || 'Salvar Lead'}</button>
+            </div>
+          </AnimatedModal>
+
+          {/* ==================== DETALHES DO LEAD MODAL ==================== */}
+          <AnimatedModal
+            isOpen={Boolean(contactModalLead)}
+            onClose={() => setState({ contactModalLead: null })}
+            zIndex={56}
+            overlayBg={th.overlayBg}
+            contentStyle={s(`width:480px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5);max-height:88vh;overflow-y:auto;box-sizing:border-box`)}
+          >
+            {contactModalLead && (
+              <>
+                <div style={s('display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px')}>
+                  <div>
+                    <h2 style={s(`margin:0;color:${th.surfaceText};font-size:19px;font-weight:700`)}>{contactModalLead.empresa}</h2>
+                    <div style={{ color: th.muted, fontSize: 13, marginTop: 2 }}>{contactModalLead.nome} • Recebido em {contactModalLead.criadoEm}</div>
                   </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {settingsModalOpen && (
-            <div onClick={() => setState({ settingsModalOpen: false })} style={s(`position:fixed;inset:0;background:${th.overlayBg};z-index:50;display:flex;align-items:center;justify-content:center;padding:20px`)}>
-              <div onClick={(e) => e.stopPropagation()} style={s(`width:420px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5)`)}>
-                <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:20px')}>
-                  <h2 style={s(`margin:0;color:${th.surfaceText};font-size:19px;font-weight:700`)}>{appT.settingsTitle}</h2>
-                  <Hoverable onClick={() => setState({ settingsModalOpen: false })} base={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted};transition:transform 0.15s ease`)} hover={{ transform: 'scale(1.15)' }}>
+                  <button onClick={() => setState({ contactModalLead: null })} style={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted}`)}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                  </Hoverable>
-                </div>
-                <div style={s(`display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid ${th.modalBorder}`)}>
-                  <span style={s(`color:${th.surfaceSubtle};font-size:14px`)}>{appT.settingsLanguage}</span>
-                  <div style={s(`display:flex;gap:2px;background:${th.toolbarBtnBg};border:0px;border-radius:5px;padding:2px`)}>{langSwitch}</div>
-                </div>
-                <div style={s('display:flex;align-items:center;justify-content:space-between;padding:12px 0')}>
-                  <span style={s(`color:${th.surfaceSubtle};font-size:14px`)}>{appT.settingsNotifications}</span>
-                  <button onClick={() => setState((s2) => ({ notifications: !s2.notifications }))} style={s(`width:34px;height:19px;border-radius:999px;border:none;cursor:pointer;padding:2px;display:flex;align-items:center;background:${notifBg};justify-content:${notifJustify};transition:background 0.15s`)}>
-                    <span style={s('width:15px;height:15px;border-radius:50%;background:#fff;display:block')}></span>
                   </button>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {logoutModalOpen && (
-            <div onClick={() => setState({ logoutModalOpen: false })} style={s(`position:fixed;inset:0;background:${th.overlayBg};z-index:50;display:flex;align-items:center;justify-content:center;padding:20px`)}>
-              <div onClick={(e) => e.stopPropagation()} style={s(`width:380px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5)`)}>
-                <h2 style={s(`margin:0 0 10px;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{appT.logoutTitle}</h2>
-                <p style={s(`margin:0 0 22px;color:${th.surfaceSubtle};font-size:14px;line-height:1.5`)}>{appT.logoutBody}</p>
-                <div style={s('display:flex;gap:10px;justify-content:flex-end')}>
-                  <button onClick={() => setState({ logoutModalOpen: false })} style={s(`padding:10px 18px;border-radius:5px;border:1px solid ${th.inputBorder};background:none;color:${th.surfaceText};cursor:pointer;font-family:${FONT};font-size:13.5px`)}>{appT.logoutCancel}</button>
-                  <Hoverable onClick={doLogout} base={s('padding:10px 18px;border-radius:5px;border:none;background:#c0433c;color:#fff;cursor:pointer;font-family:'+FONT+';font-size:13.5px;font-weight:600')} hover={{ background: '#a6362f' }}>
-                    {appT.logoutConfirm}
-                  </Hoverable>
+                <div style={{ background: 'rgba(42,140,151,0.12)', border: '1px solid rgba(79,209,222,0.25)', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#4fd1de', fontWeight: 700, marginBottom: 2 }}>Sistema / Software Solicitado</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: th.text }}>{contactModalLead.tipoSistema}</div>
                 </div>
-              </div>
-            </div>
-          )}
 
+                <div style={{ marginBottom: 16 }}>
+                  <div style={s(`color:${th.surfaceMuted};font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px`)}>Descrição & Escopo do Projeto</div>
+                  <p style={s(`margin:0;color:${th.surfaceSubtle};font-size:13.5px;line-height:1.6;background:${th.inputBg};padding:12px;border-radius:8px;border:1px solid ${th.modalBorder}`)}>{contactModalLead.descricao}</p>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+                  <div>
+                    <div style={s(`color:${th.surfaceMuted};font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px`)}>Orçamento</div>
+                    <div style={s(`color:${th.surfaceText};font-size:13.5px;font-weight:600`)}>{contactModalLead.orcamento}</div>
+                  </div>
+                  <div>
+                    <div style={s(`color:${th.surfaceMuted};font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px`)}>Prazo Desejado</div>
+                    <div style={s(`color:${th.surfaceText};font-size:13.5px;font-weight:600`)}>{contactModalLead.prazo}</div>
+                  </div>
+                  <div>
+                    <div style={s(`color:${th.surfaceMuted};font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px`)}>Email</div>
+                    <div style={s(`color:${th.surfaceText};font-size:13px`)}>{contactModalLead.email}</div>
+                  </div>
+                  <div>
+                    <div style={s(`color:${th.surfaceMuted};font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px`)}>Telefone / WhatsApp</div>
+                    <div style={s(`color:${th.surfaceText};font-size:13px`)}>{contactModalLead.telefone}</div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: `1px solid ${th.modalBorder}`, paddingTop: 16 }}>
+                  <div style={s(`color:${th.surfaceMuted};font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px`)}>Atualizar Status do Lead</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {[
+                      { id: 'novo', label: 'Novo Lead', bg: '#3b82f6' },
+                      { id: 'em_qualificacao', label: 'Em Qualificação', bg: '#f59e0b' },
+                      { id: 'proposta_enviada', label: 'Proposta Enviada', bg: '#a855f7' },
+                      { id: 'fechado', label: 'Contrato Fechado', bg: '#22c55e' },
+                      { id: 'arquivado', label: 'Arquivado', bg: '#64748b' },
+                    ].map((st) => (
+                      <button
+                        key={st.id}
+                        onClick={() => updateContactStatus(contactModalLead.id, st.id)}
+                        style={{
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '6px 12px',
+                          borderRadius: 999,
+                          fontFamily: FONT,
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          background: contactModalLead.status === st.id ? st.bg : th.toolbarBtnBg,
+                          color: contactModalLead.status === st.id ? '#052226' : th.toolbarIcon,
+                        }}
+                      >
+                        {st.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </AnimatedModal>
+
+          {/* Logout Modal */}
+          <AnimatedModal
+            isOpen={logoutModalOpen}
+            onClose={() => setState({ logoutModalOpen: false })}
+            zIndex={50}
+            overlayBg={th.overlayBg}
+            contentStyle={s(`width:380px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5)`)}
+          >
+            <h2 style={s(`margin:0 0 10px;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{appT.logoutTitle}</h2>
+            <p style={s(`margin:0 0 22px;color:${th.surfaceSubtle};font-size:14px;line-height:1.5`)}>{appT.logoutBody}</p>
+            <div style={s('display:flex;gap:10px;justify-content:flex-end')}>
+              <button onClick={() => setState({ logoutModalOpen: false })} style={s(`padding:10px 18px;border-radius:5px;border:1px solid ${th.inputBorder};background:none;color:${th.surfaceText};cursor:pointer;font-family:${FONT};font-size:13.5px`)}>{appT.logoutCancel}</button>
+              <Hoverable onClick={doLogout} base={s('padding:10px 18px;border-radius:5px;border:none;background:#c0433c;color:#fff;cursor:pointer;font-family:'+FONT+';font-size:13.5px;font-weight:600')} hover={{ background: '#a6362f' }}>
+                {appT.logoutConfirm}
+              </Hoverable>
+            </div>
+          </AnimatedModal>
+
+          {/* Toast Container */}
           <div style={s('position:fixed;top:78px;right:24px;z-index:60;display:flex;flex-direction:column;gap:10px;width:320px;max-width:calc(100vw - 32px)')}>
             {toasts.map((toast) => (
               <div key={toast.id} style={{ ...s(`background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:10px;padding:14px 16px;box-shadow:0 12px 30px rgba(0,0,0,0.4);display:flex;align-items:flex-start;gap:10px`), borderLeft: `4px solid ${toast.accent}`, animation: 'toastIn 0.25s ease both' }}>
@@ -1652,6 +3645,7 @@ export default function App() {
             ))}
           </div>
 
+          {/* YouTube Video Player Modal */}
           <div style={playerBoxStyle}>
             <div style={{
               display: videoModalOpen ? 'flex' : 'none',
@@ -1675,235 +3669,877 @@ export default function App() {
             </div>
           </div>
 
-          {redirectModalOpen && (
-            <div onClick={() => setState({ redirectModalOpen: false, addFormOpen: false })} style={s(`position:fixed;inset:0;background:${th.overlayBg};z-index:65;display:flex;align-items:center;justify-content:center;padding:20px`)}>
-              <div onClick={(e) => e.stopPropagation()} style={{ ...s(`width:520px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:24px;box-shadow:0 30px 60px rgba(0,0,0,0.5);max-height:86vh;display:flex;flex-direction:column;box-sizing:border-box`), animation: 'slideUpIn 0.22s ease both' }}>
-                <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:16px')}>
-                  <h2 style={s(`margin:0;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{appT.redirectTitle}</h2>
-                  <button onClick={() => setState({ redirectModalOpen: false, addFormOpen: false })} style={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted}`)}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          {/* Redirecionamento Modal */}
+          <AnimatedModal
+            isOpen={redirectModalOpen}
+            onClose={() => {
+              cancelPlaylistForm();
+              cancelEditSong();
+              setState({ redirectModalOpen: false, addFormOpen: false });
+            }}
+            zIndex={65}
+            overlayBg={th.overlayBg}
+            contentStyle={s(`width:560px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:24px;box-shadow:0 30px 60px rgba(0,0,0,0.5);max-height:88vh;display:flex;flex-direction:column;box-sizing:border-box`)}
+          >
+            <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:16px')}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(42,140,151,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4fd1de' }}>
+                  <ListMusic size={17} />
+                </div>
+                <h2 style={s(`margin:0;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{appT.redirectTitle || 'Redirecionamento'}</h2>
+              </div>
+              <button
+                onClick={() => {
+                  cancelPlaylistForm();
+                  cancelEditSong();
+                  setState({ redirectModalOpen: false, addFormOpen: false });
+                }}
+                style={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted};display:flex;align-items:center;justify-content:center;padding:4px`)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={s('display:flex;gap:8px;margin-bottom:12px')}>
+              <input
+                type="text"
+                value={redirectSearch}
+                onChange={(e) => setState({ redirectSearch: e.target.value, redirectPage: 0 })}
+                placeholder={appT.redirectSearchPlaceholder || 'Buscar por música ou quem adicionou…'}
+                style={s(`flex:1;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+              />
+              <button
+                onClick={() => {
+                  cancelPlaylistForm();
+                  cancelEditSong();
+                  setState((s2) => ({
+                    addFormOpen: !s2.addFormOpen,
+                    newAddedBy: s2.newAddedBy || myUserAccount.name || 'Alderson',
+                  }));
+                }}
+                style={s(`padding:9px 16px;border-radius:8px;border:none;background:#2a8c97;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;font-family:${FONT};white-space:nowrap;transition:all 0.15s ease`)}
+              >
+                {addFormOpen ? '✕ Fechar' : (appT.addLabel || '+ Adicionar Música')}
+              </button>
+            </div>
+
+            {/* Playlists Bar in Redirecionamento */}
+            <div style={s('display:flex;flex-direction:column;gap:6px;margin-bottom:14px')}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={s(`color:${th.surfaceMuted};font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px`)}>
+                  <ListMusic size={13} style={{ color: '#4fd1de' }} />
+                  {appT.playlistTitle || 'Playlists'}:
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    onClick={() => {
+                      if (playlistFormMode === 'create') cancelPlaylistForm();
+                      else {
+                        cancelEditSong();
+                        setState({ addFormOpen: false });
+                        startCreatePlaylist();
+                      }
+                    }}
+                    style={s(`border:1px dashed ${playlistFormMode === 'create' ? '#4fd1de' : th.surfaceBorder};background:${playlistFormMode === 'create' ? 'rgba(79,209,222,0.12)' : 'transparent'};color:${playlistFormMode === 'create' ? '#4fd1de' : th.surfaceText};cursor:pointer;padding:3px 8px;border-radius:6px;font-size:11px;font-family:${FONT};display:flex;align-items:center;gap:4px;transition:all 0.15s`)}
+                  >
+                    <Plus size={11} />
+                    <span>Nova Playlist</span>
+                  </button>
+                  <button
+                    onClick={() => setState({ playlistModalOpen: true })}
+                    style={s(`border:1px solid ${th.surfaceBorder};background:transparent;color:${th.surfaceMuted};cursor:pointer;padding:3px 8px;border-radius:6px;font-size:11px;font-family:${FONT};display:flex;align-items:center;gap:4px;transition:all 0.15s`)}
+                    title="Abrir gerenciador completo de playlists"
+                  >
+                    <Pencil size={11} />
+                    <span>Gerenciar</span>
                   </button>
                 </div>
+              </div>
 
-                <div style={s('display:flex;gap:8px;margin-bottom:14px')}>
-                  <input
-                    type="text"
-                    value={redirectSearch}
-                    onChange={(e) => setState({ redirectSearch: e.target.value, redirectPage: 0 })}
-                    placeholder={appT.redirectSearchPlaceholder}
-                    style={s(`flex:1;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
-                  />
-                  <button onClick={() => setState((s2) => ({ addFormOpen: !s2.addFormOpen }))} style={s(`padding:9px 14px;border-radius:8px;border:none;background:#2a8c97;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;font-family:${FONT};white-space:nowrap`)}>{appT.addLabel}</button>
-                </div>
-
-                <div style={s('display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px')}>
-                  <span style={s(`color:${th.surfaceMuted};font-size:11px`)}>{appT.playlistTitle}:</span>
-                  {decoratedPlaylists.map((pl) => (
-                    <button key={pl.id} onClick={pl.select} style={s(`border:none;cursor:pointer;padding:5px 12px;border-radius:999px;font-family:${FONT};font-size:11.5px;font-weight:600;background:${pl.bg};color:${pl.color}`)}>{pl.nome}</button>
-                  ))}
-                  <button onClick={() => setState({ playlistModalOpen: true })} style={s(`border:1px dashed ${th.surfaceMuted};background:none;color:${th.surfaceMuted};cursor:pointer;padding:5px 12px;border-radius:999px;font-size:11.5px;font-family:${FONT}`)}>+ {appT.newPlaylistLabel}</button>
-                </div>
-
-                {addFormOpen && (
-                  <div style={s(`background:${th.inputBg};border:1px solid ${th.modalBorder};border-radius:10px;padding:14px;margin-bottom:14px;display:flex;flex-direction:column;gap:8px`)}>
-                    <input type="text" value={newTitulo} onChange={(e) => setState({ newTitulo: e.target.value })} placeholder={appT.songTitlePlaceholder} style={s(`box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
-                    <input type="text" value={newLink} onChange={(e) => setState({ newLink: e.target.value })} placeholder={appT.songLinkPlaceholder} style={s(`box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
-                    <input type="text" value={newAddedBy} onChange={(e) => setState({ newAddedBy: e.target.value })} placeholder={appT.songAddedByPlaceholder} style={s(`box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)} />
-                    <button onClick={submitNewSong} style={s(`align-self:flex-end;padding:8px 16px;border-radius:8px;border:none;background:#2a8c97;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;font-family:${FONT}`)}>{appT.saveSongLabel}</button>
-                  </div>
-                )}
-
-                <div style={s('flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;min-height:120px')}>
-                  {pagedSongs.map((song) => (
-                    <div key={song.id} style={s('display:flex;align-items:center;gap:10px;padding:8px 6px')}>
-                      <div style={s('flex:1;min-width:0')}>
-                        <div style={s(`color:${th.surfaceText};font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`)}>{song.titulo}</div>
-                        <div style={s(`color:${th.surfaceMuted};font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`)}>{song.addedBy}</div>
-                      </div>
-                      <button onClick={song.playAudio} title="Tocar áudio" aria-label="Tocar" style={{ ...s(`background:${th.hoverBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${th.surfaceText};cursor:pointer;flex-shrink:0`), opacity: song.btnOpacity, pointerEvents: song.btnPointer }}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"></polygon></svg>
-                      </button>
-                      <button onClick={song.playVideo} title="Abrir vídeo" aria-label="Abrir vídeo" style={{ ...s(`background:${th.hoverBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${th.surfaceText};cursor:pointer;flex-shrink:0`), opacity: song.btnOpacity, pointerEvents: song.btnPointer }}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="14" height="14" rx="2"></rect><polygon points="16,9 22,6 22,18 16,15" fill="currentColor" stroke="none"></polygon></svg>
+              <div style={s('display:flex;align-items:center;gap:6px;flex-wrap:wrap')}>
+                <button
+                  onClick={() => setState({ currentPlaylistId: null })}
+                  style={s(`border:none;cursor:pointer;padding:4px 10px;border-radius:999px;font-family:${FONT};font-size:11.5px;font-weight:${!currentPlaylistId ? 700 : 500};background:${!currentPlaylistId ? '#2a8c97' : th.hoverBg};color:${!currentPlaylistId ? '#fff' : th.surfaceText};transition:all 0.15s`)}
+                >
+                  Todas ({songs.length})
+                </button>
+                {playlists.map((pl) => {
+                  const isActive = currentPlaylistId === pl.id;
+                  return (
+                    <div
+                      key={pl.id}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        borderRadius: 999,
+                        background: isActive ? '#2a8c97' : th.hoverBg,
+                        border: `1px solid ${isActive ? '#2a8c97' : th.surfaceBorder}`,
+                        overflow: 'hidden',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <button
+                        onClick={() => {
+                          setState({ currentPlaylistId: isActive ? null : pl.id });
+                          if (!isActive && pl.songIds[0]) loadSong(pl.songIds[0], { keepPlaylist: true });
+                        }}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: isActive ? '#fff' : th.surfaceText,
+                          padding: '4px 8px 4px 10px',
+                          fontFamily: FONT,
+                          fontSize: '11.5px',
+                          fontWeight: isActive ? 700 : 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                      >
+                        <span>{pl.nome}</span>
+                        <span style={{ opacity: 0.7, fontSize: 10 }}>({pl.songIds.length})</span>
                       </button>
                       <button
-                        onClick={() => deleteSong(song.id)}
-                        title="Excluir faixa"
-                        aria-label="Excluir faixa"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          cancelEditSong();
+                          setState({ addFormOpen: false });
+                          startEditPlaylist(pl);
+                        }}
+                        title={`Alterar playlist "${pl.nome}"`}
                         style={{
-                          background: th.hoverBg,
                           border: 'none',
-                          borderRadius: 6,
-                          width: 26,
-                          height: 26,
+                          borderLeft: `1px solid ${isActive ? 'rgba(255,255,255,0.2)' : th.surfaceBorder}`,
+                          background: 'transparent',
+                          color: isActive ? '#fff' : th.surfaceMuted,
+                          padding: '4px 6px',
+                          cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          color: th.surfaceMuted,
+                          transition: 'all 0.12s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = isActive ? 'rgba(0,0,0,0.15)' : 'rgba(79,209,222,0.15)';
+                          e.currentTarget.style.color = isActive ? '#fff' : '#4fd1de';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = isActive ? '#fff' : th.surfaceMuted;
+                        }}
+                      >
+                        <Pencil size={11} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deletePlaylist(pl.id);
+                        }}
+                        title={`Excluir playlist "${pl.nome}"`}
+                        style={{
+                          border: 'none',
+                          borderLeft: `1px solid ${isActive ? 'rgba(255,255,255,0.2)' : th.surfaceBorder}`,
+                          background: 'transparent',
+                          color: isActive ? '#fff' : th.surfaceMuted,
+                          padding: '4px 6px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.12s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(239,68,68,0.2)';
+                          e.currentTarget.style.color = '#ef4444';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = isActive ? '#fff' : th.surfaceMuted;
+                        }}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Playlist Form (Criar ou Editar Playlist no Redirecionamento) */}
+            {playlistFormMode && (
+              <div style={s(`background:${th.inputBg};border:1px solid ${th.modalBorder};border-radius:12px;padding:16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,0.25);animation:fadeInSoft 0.15s ease both`)}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(79,209,222,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4fd1de' }}>
+                      {playlistFormMode === 'create' ? <Plus size={13} /> : <Pencil size={12} />}
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: th.surfaceText }}>
+                      {playlistFormMode === 'create' ? (appT.newPlaylistLabel || 'Criar Nova Playlist') : `Alterar Playlist: "${editPlaylistName || 'Sem nome'}"`}
+                    </span>
+                  </div>
+                  <button onClick={cancelPlaylistForm} style={{ background: 'none', border: 'none', color: th.surfaceMuted, cursor: 'pointer', padding: 2 }}>
+                    <X size={15} />
+                  </button>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: th.surfaceSubtle, fontSize: 11, marginBottom: 3, fontWeight: 600 }}>Nome da Playlist *</label>
+                  <input
+                    type="text"
+                    value={playlistFormMode === 'create' ? newPlaylistName : editPlaylistName}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (playlistFormMode === 'create') setState({ newPlaylistName: val });
+                      else setState({ editPlaylistName: val });
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') savePlaylistChanges(); }}
+                    placeholder="Ex: Favoritas, Trap, Foco..."
+                    style={s(`width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.cardBg};color:${th.surfaceText};font-size:12.5px;font-family:${FONT};outline:none`)}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ color: th.surfaceSubtle, fontSize: 11, fontWeight: 600 }}>
+                      Músicas ({playlistFormMode === 'create' ? newPlaylistSongIds.length : editPlaylistSongIds.length} selecionadas)
+                    </span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allIds = songs.map((s) => s.id);
+                          if (playlistFormMode === 'create') setState({ newPlaylistSongIds: allIds });
+                          else setState({ editPlaylistSongIds: allIds });
+                        }}
+                        style={{ background: 'none', border: 'none', color: '#4fd1de', fontSize: 10.5, cursor: 'pointer', fontFamily: FONT, textDecoration: 'underline', padding: 0 }}
+                      >
+                        Marcar todas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (playlistFormMode === 'create') setState({ newPlaylistSongIds: [] });
+                          else setState({ editPlaylistSongIds: [] });
+                        }}
+                        style={{ background: 'none', border: 'none', color: th.surfaceMuted, fontSize: 10.5, cursor: 'pointer', fontFamily: FONT, textDecoration: 'underline', padding: 0 }}
+                      >
+                        Desmarcar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={s(`display:flex;flex-direction:column;gap:3px;max-height:140px;overflow-y:auto;padding:5px;background:${th.cardBg};border:1px solid ${th.inputBorder};border-radius:8px`)}>
+                    {songs.map((sg) => {
+                      const isChecked = playlistFormMode === 'create'
+                        ? newPlaylistSongIds.includes(sg.id)
+                        : editPlaylistSongIds.includes(sg.id);
+                      return (
+                        <label
+                          key={sg.id}
+                          style={s(`display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 7px;border-radius:5px;cursor:pointer;transition:background 0.12s ease;background:${isChecked ? 'rgba(79,209,222,0.08)' : 'transparent'}`)}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (playlistFormMode === 'create') {
+                                  setState((s2) => ({
+                                    newPlaylistSongIds: s2.newPlaylistSongIds.includes(sg.id)
+                                      ? s2.newPlaylistSongIds.filter((x) => x !== sg.id)
+                                      : [...s2.newPlaylistSongIds, sg.id],
+                                  }));
+                                } else {
+                                  setState((s2) => ({
+                                    editPlaylistSongIds: s2.editPlaylistSongIds.includes(sg.id)
+                                      ? s2.editPlaylistSongIds.filter((x) => x !== sg.id)
+                                      : [...s2.editPlaylistSongIds, sg.id],
+                                  }));
+                                }
+                              }}
+                              style={{ accentColor: '#2a8c97', cursor: 'pointer' }}
+                            />
+                            <span style={{ color: th.surfaceText, fontSize: 12, fontWeight: isChecked ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {sg.titulo}
+                            </span>
+                          </div>
+                          <span style={{ color: th.surfaceMuted, fontSize: 10, flexShrink: 0 }}>{sg.addedBy}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button type="button" onClick={cancelPlaylistForm} style={s(`padding:7px 12px;border-radius:6px;border:1px solid ${th.inputBorder};background:none;color:${th.surfaceText};font-size:11.5px;cursor:pointer;font-family:${FONT}`)}>
+                    Cancelar
+                  </button>
+                  <button type="button" onClick={savePlaylistChanges} style={s(`padding:7px 16px;border-radius:6px;border:none;background:#2a8c97;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:${FONT};display:flex;align-items:center;gap:4px`)}>
+                    <Check size={13} />
+                    <span>{playlistFormMode === 'create' ? 'Criar Playlist' : 'Salvar Alterações'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {addFormOpen && (
+              <div style={s(`background:${th.inputBg};border:1px solid ${th.modalBorder};border-radius:12px;padding:16px;margin-bottom:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,0.25)`)}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: th.surfaceText }}>Adicionar Nova Música</span>
+                  <button onClick={() => setState({ addFormOpen: false })} style={{ background: 'none', border: 'none', color: th.surfaceMuted, cursor: 'pointer', fontSize: 13 }}>✕</button>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: th.surfaceSubtle, fontSize: 11.5, marginBottom: 4 }}>Título da música *</label>
+                  <input
+                    type="text"
+                    value={newTitulo}
+                    onChange={(e) => setState({ newTitulo: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') submitNewSong(); }}
+                    placeholder="Ex: Arctic Monkeys - Do I Wanna Know?"
+                    style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: th.surfaceSubtle, fontSize: 11.5, marginBottom: 4 }}>Link do YouTube ou ID do vídeo *</label>
+                  <input
+                    type="text"
+                    value={newLink}
+                    onChange={(e) => setState({ newLink: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') submitNewSong(); }}
+                    placeholder="https://www.youtube.com/watch?v=... ou ID"
+                    style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: th.surfaceSubtle, fontSize: 11.5, marginBottom: 4 }}>Quem adicionou</label>
+                  <input
+                    type="text"
+                    value={newAddedBy}
+                    onChange={(e) => setState({ newAddedBy: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') submitNewSong(); }}
+                    placeholder="Seu nome"
+                    style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                  <button onClick={() => setState({ addFormOpen: false })} style={s(`padding:8px 14px;border-radius:6px;border:1px solid ${th.inputBorder};background:none;color:${th.surfaceText};font-size:12px;cursor:pointer;font-family:${FONT}`)}>Cancelar</button>
+                  <button onClick={submitNewSong} style={s(`padding:8px 18px;border-radius:6px;border:none;background:#2a8c97;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;font-family:${FONT}`)}>{appT.saveSongLabel || 'Salvar música'}</button>
+                </div>
+              </div>
+            )}
+
+            <div style={s('flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;min-height:120px')}>
+              {pagedSongs.map((song) => {
+                const activePl = currentPlaylistId ? playlists.find((p) => p.id === currentPlaylistId) : null;
+                const isInActivePl = activePl ? activePl.songIds.includes(song.id) : false;
+                const isEditingThisSong = editingSongId === song.id;
+
+                if (isEditingThisSong) {
+                  return (
+                    <div
+                      key={song.id}
+                      style={s(`display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:rgba(42,140,151,0.12);border:1px solid rgba(79,209,222,0.4);margin-bottom:4px;animation:fadeInSoft 0.15s ease both`)}
+                    >
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editSongTitle}
+                        onChange={(e) => setState({ editSongTitle: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveSongTitle(song.id);
+                          if (e.key === 'Escape') cancelEditSong();
+                        }}
+                        placeholder="Nome da faixa..."
+                        style={s(`flex:1;min-width:0;box-sizing:border-box;padding:7px 10px;border-radius:6px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:12.5px;font-family:${FONT};outline:none`)}
+                      />
+                      <button
+                        onClick={() => saveSongTitle(song.id)}
+                        title="Salvar nome da faixa"
+                        style={s('background:#2a8c97;border:none;border-radius:6px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#fff;cursor:pointer;transition:all 0.15s;flex-shrink:0')}
+                      >
+                        <Check size={13} />
+                      </button>
+                      <button
+                        onClick={cancelEditSong}
+                        title="Cancelar"
+                        style={s(`background:${th.hoverBg};border:none;border-radius:6px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:${th.surfaceMuted};cursor:pointer;transition:all 0.15s;flex-shrink:0`)}
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={song.id} style={s('display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:8px;transition:background 0.12s ease')}>
+                    <div style={s('flex:1;min-width:0')}>
+                      <div
+                        onClick={() => startEditSong(song)}
+                        title="Clique para alterar o nome da faixa"
+                        style={s(`color:${th.surfaceText};font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;display:inline-flex;align-items:center;gap:6px`)}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#4fd1de'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = th.surfaceText; }}
+                      >
+                        <span>{song.titulo}</span>
+                      </div>
+                      <div style={s(`color:${th.surfaceMuted};font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:6px`)}>
+                        <span>{song.addedBy}</span>
+                        {activePl && (
+                          <span style={{ fontSize: 10, color: isInActivePl ? '#4fd1de' : th.surfaceMuted, background: isInActivePl ? 'rgba(79,209,222,0.12)' : 'transparent', padding: '1px 5px', borderRadius: 4 }}>
+                            {isInActivePl ? `✓ em ${activePl.nome}` : `fora de ${activePl.nome}`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {activePl && (
+                      <button
+                        onClick={() => toggleSongInPlaylist(activePl.id, song.id)}
+                        title={isInActivePl ? `Remover de ${activePl.nome}` : `Adicionar a ${activePl.nome}`}
+                        style={{
+                          background: isInActivePl ? 'rgba(79,209,222,0.18)' : th.hoverBg,
+                          border: `1px solid ${isInActivePl ? 'rgba(79,209,222,0.4)' : 'transparent'}`,
+                          borderRadius: 6,
+                          padding: '4px 8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          color: isInActivePl ? '#4fd1de' : th.surfaceMuted,
+                          fontSize: 11,
+                          fontFamily: FONT,
                           cursor: 'pointer',
                           flexShrink: 0,
                           transition: 'all 0.15s ease',
                         }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.color = '#ef4444';
-                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.12)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.color = th.surfaceMuted;
-                          e.currentTarget.style.background = th.hoverBg;
-                        }}
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 6h18"></path>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        </svg>
+                        {isInActivePl ? <Check size={11} /> : <Plus size={11} />}
+                        <span>{isInActivePl ? 'Na Playlist' : '+ Playlist'}</span>
                       </button>
-                    </div>
-                  ))}
-                </div>
+                    )}
 
-                <div style={s(`display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid ${th.modalBorder}`)}>
-                  <button onClick={() => setState((s2) => ({ redirectPage: Math.max(0, s2.redirectPage - 1) }))} style={s(`background:none;border:1px solid ${th.inputBorder};border-radius:6px;padding:6px 12px;color:${th.surfaceText};font-size:12px;cursor:pointer;font-family:${FONT}`)}>{appT.prevPage}</button>
-                  <span style={s(`color:${th.surfaceSubtle};font-size:12px`)}>{pageLabel}</span>
-                  <button onClick={() => setState((s2) => ({ redirectPage: Math.min(totalPages - 1, s2.redirectPage + 1) }))} style={s(`background:none;border:1px solid ${th.inputBorder};border-radius:6px;padding:6px 12px;color:${th.surfaceText};font-size:12px;cursor:pointer;font-family:${FONT}`)}>{appT.nextPage}</button>
+                    <button onClick={song.playAudio} title="Tocar áudio" aria-label="Tocar" style={{ ...s(`background:${th.hoverBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${th.surfaceText};cursor:pointer;flex-shrink:0`), opacity: song.btnOpacity, pointerEvents: song.btnPointer }}>
+                      <Play size={11} fill="currentColor" />
+                    </button>
+                    <button onClick={song.playVideo} title="Abrir vídeo" aria-label="Abrir vídeo" style={{ ...s(`background:${th.hoverBg};border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:${th.surfaceText};cursor:pointer;flex-shrink:0`), opacity: song.btnOpacity, pointerEvents: song.btnPointer }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="14" height="14" rx="2"></rect><polygon points="16,9 22,6 22,18 16,15" fill="currentColor" stroke="none"></polygon></svg>
+                    </button>
+                    <button
+                      onClick={() => startEditSong(song)}
+                      title="Alterar nome da faixa"
+                      aria-label="Alterar nome da faixa"
+                      style={{
+                        background: th.hoverBg,
+                        border: 'none',
+                        borderRadius: 6,
+                        width: 26,
+                        height: 26,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: th.surfaceMuted,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = '#4fd1de';
+                        e.currentTarget.style.background = 'rgba(79,209,222,0.12)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = th.surfaceMuted;
+                        e.currentTarget.style.background = th.hoverBg;
+                      }}
+                    >
+                      <Pencil size={11} />
+                    </button>
+                    <button
+                      onClick={() => deleteSong(song.id)}
+                      title="Excluir faixa"
+                      aria-label="Excluir faixa"
+                      style={{
+                        background: th.hoverBg,
+                        border: 'none',
+                        borderRadius: 6,
+                        width: 26,
+                        height: 26,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: th.surfaceMuted,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = '#ef4444';
+                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.12)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = th.surfaceMuted;
+                        e.currentTarget.style.background = th.hoverBg;
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={s(`display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid ${th.modalBorder}`)}>
+              <button onClick={() => setState((s2) => ({ redirectPage: Math.max(0, s2.redirectPage - 1) }))} style={s(`background:none;border:1px solid ${th.inputBorder};border-radius:6px;padding:6px 12px;color:${th.surfaceText};font-size:12px;cursor:pointer;font-family:${FONT}`)}>{appT.prevPage}</button>
+              <span style={s(`color:${th.surfaceSubtle};font-size:12px`)}>{pageLabel}</span>
+              <button onClick={() => setState((s2) => ({ redirectPage: Math.min(totalPages - 1, s2.redirectPage + 1) }))} style={s(`background:none;border:1px solid ${th.inputBorder};border-radius:6px;padding:6px 12px;color:${th.surfaceText};font-size:12px;cursor:pointer;font-family:${FONT}`)}>{appT.nextPage}</button>
+            </div>
+          </AnimatedModal>
+
+          {/* Playlists Modal */}
+          <AnimatedModal
+            isOpen={playlistModalOpen}
+            onClose={() => {
+              cancelPlaylistForm();
+              setState({ playlistModalOpen: false });
+            }}
+            zIndex={66}
+            overlayBg={th.overlayBg}
+            contentStyle={s(`width:460px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:24px;box-shadow:0 30px 60px rgba(0,0,0,0.5);max-height:86vh;overflow-y:auto;box-sizing:border-box`)}
+          >
+            <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:16px')}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(79,209,222,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4fd1de' }}>
+                  <ListMusic size={17} />
+                </div>
+                <div>
+                  <h2 style={s(`margin:0;color:${th.surfaceText};font-size:17px;font-weight:700`)}>{appT.playlistTitle || 'Playlists & Coleções'}</h2>
+                  <div style={{ color: th.surfaceMuted, fontSize: 11 }}>{playlists.length} {playlists.length === 1 ? 'playlist cadastrada' : 'playlists cadastradas'}</div>
                 </div>
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {!playlistFormMode && (
+                  <button
+                    onClick={startCreatePlaylist}
+                    style={s(`display:flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;border:none;background:#2a8c97;color:#fff;font-family:${FONT};font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s`)}
+                  >
+                    <Plus size={13} />
+                    <span>Nova Playlist</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    cancelPlaylistForm();
+                    setState({ playlistModalOpen: false });
+                  }}
+                  style={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted};display:flex;align-items:center;justify-content:center;padding:4px`)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
-          )}
 
-          {playlistModalOpen && (
-            <div onClick={() => setState({ playlistModalOpen: false })} style={s(`position:fixed;inset:0;background:${th.overlayBg};z-index:66;display:flex;align-items:center;justify-content:center;padding:20px`)}>
-              <div onClick={(e) => e.stopPropagation()} style={s(`width:420px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:24px;box-shadow:0 30px 60px rgba(0,0,0,0.5);max-height:86vh;overflow-y:auto;box-sizing:border-box`)}>
-                <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:16px')}>
-                  <h2 style={s(`margin:0;color:${th.surfaceText};font-size:18px;font-weight:700`)}>{appT.playlistTitle}</h2>
-                  <button onClick={() => setState({ playlistModalOpen: false })} style={s(`background:none;border:none;cursor:pointer;color:${th.surfaceMuted}`)}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            {/* If in edit/create form mode inside Playlists Modal */}
+            {playlistFormMode ? (
+              <div style={s(`background:${th.inputBg};border:1px solid ${th.modalBorder};border-radius:12px;padding:16px;margin-bottom:14px;display:flex;flex-direction:column;gap:12px;box-shadow:0 6px 20px rgba(0,0,0,0.25);animation:fadeInSoft 0.15s ease both`)}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(79,209,222,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4fd1de' }}>
+                      {playlistFormMode === 'create' ? <Plus size={13} /> : <Pencil size={12} />}
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: th.surfaceText }}>
+                      {playlistFormMode === 'create' ? (appT.newPlaylistLabel || 'Criar Nova Playlist') : `Alterar Playlist: "${editPlaylistName || 'Sem nome'}"`}
+                    </span>
+                  </div>
+                  <button onClick={cancelPlaylistForm} style={{ background: 'none', border: 'none', color: th.surfaceMuted, cursor: 'pointer', padding: 2 }}>
+                    <X size={15} />
                   </button>
                 </div>
 
-                <div style={s('display:flex;flex-direction:column;gap:8px;margin-bottom:18px')}>
-                  {decoratedPlaylists.map((pl) => (
-                    <button key={pl.id} onClick={pl.select} style={s(`display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:10px;border:1px solid ${pl.border};background:${pl.bg};color:${pl.color};cursor:pointer;font-family:${FONT};text-align:left`)}>
-                      <span style={s('font-size:13.5px;font-weight:600')}>{pl.nome}</span>
-                      <span style={{ color: pl.color, opacity: 0.6, fontSize: 11.5 }}>{pl.count}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div style={s(`border-top:1px solid ${th.modalBorder};padding-top:16px`)}>
-                  <label style={s(`display:block;color:${th.surfaceSubtle};font-size:12.5px;margin-bottom:8px`)}>{appT.newPlaylistLabel}</label>
+                <div>
+                  <label style={{ display: 'block', color: th.surfaceSubtle, fontSize: 11, marginBottom: 3, fontWeight: 600 }}>Nome da Playlist *</label>
                   <input
                     type="text"
-                    value={newPlaylistName}
-                    onChange={(e) => setState({ newPlaylistName: e.target.value })}
-                    placeholder={appT.playlistNamePlaceholder}
-                    style={s(`width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none;margin-bottom:10px`)}
+                    value={playlistFormMode === 'create' ? newPlaylistName : editPlaylistName}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (playlistFormMode === 'create') setState({ newPlaylistName: val });
+                      else setState({ editPlaylistName: val });
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') savePlaylistChanges(); }}
+                    placeholder="Ex: Favoritas, Trap, Foco..."
+                    style={s(`width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.cardBg};color:${th.surfaceText};font-size:12.5px;font-family:${FONT};outline:none`)}
                   />
-                  <div style={s('display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;margin-bottom:12px')}>
-                    {songCheckOptions.map((opt, i) => (
-                      <label key={i} style={s(`display:flex;align-items:center;gap:8px;color:${th.surfaceText};font-size:12.5px;cursor:pointer`)}>
-                        <input type="checkbox" checked={opt.checked} onChange={opt.toggle} />
-                        {opt.titulo}
-                      </label>
-                    ))}
-                  </div>
-                  <button onClick={createPlaylist} style={s(`width:100%;padding:10px;border-radius:8px;border:none;background:#2a8c97;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:${FONT}`)}>{appT.createPlaylistLabel}</button>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* QR Code Modal */}
-          {whatsappQrModalOpen && (
-            <div
-              onClick={() => setState({ whatsappQrModalOpen: false })}
-              style={s(`position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);z-index:999;display:flex;align-items:center;justify-content:center;padding:20px`)}
-            >
-              <div
-                onClick={(e) => e.stopPropagation()}
-                style={s(`width:440px;max-width:96vw;background:#111b21;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:26px;box-shadow:0 30px 70px rgba(0,0,0,0.65);color:#e9edef;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;text-align:center`)}
-              >
-                <div style={s('width:100%;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px')}>
-                  <div style={s('display:flex;align-items:center;gap:8px')}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e9edef' }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                      </svg>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ color: th.surfaceSubtle, fontSize: 11, fontWeight: 600 }}>
+                      Músicas ({playlistFormMode === 'create' ? newPlaylistSongIds.length : editPlaylistSongIds.length} selecionadas)
+                    </span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allIds = songs.map((s) => s.id);
+                          if (playlistFormMode === 'create') setState({ newPlaylistSongIds: allIds });
+                          else setState({ editPlaylistSongIds: allIds });
+                        }}
+                        style={{ background: 'none', border: 'none', color: '#4fd1de', fontSize: 10.5, cursor: 'pointer', fontFamily: FONT, textDecoration: 'underline', padding: 0 }}
+                      >
+                        Marcar todas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (playlistFormMode === 'create') setState({ newPlaylistSongIds: [] });
+                          else setState({ editPlaylistSongIds: [] });
+                        }}
+                        style={{ background: 'none', border: 'none', color: th.surfaceMuted, fontSize: 10.5, cursor: 'pointer', fontFamily: FONT, textDecoration: 'underline', padding: 0 }}
+                      >
+                        Desmarcar
+                      </button>
                     </div>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: '#e9edef' }}>{appT.whatsappQrTitle || 'Conectar Chat'}</span>
                   </div>
-                  <button
-                    onClick={() => setState({ whatsappQrModalOpen: false })}
-                    style={s('background:none;border:none;cursor:pointer;color:#8696a0;padding:4px;display:flex;align-items:center;justify-content:center;border-radius:6px')}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                  </button>
+
+                  <div style={s(`display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto;padding:5px;background:${th.cardBg};border:1px solid ${th.inputBorder};border-radius:8px`)}>
+                    {songs.map((sg) => {
+                      const isChecked = playlistFormMode === 'create'
+                        ? newPlaylistSongIds.includes(sg.id)
+                        : editPlaylistSongIds.includes(sg.id);
+                      return (
+                        <label
+                          key={sg.id}
+                          style={s(`display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 7px;border-radius:5px;cursor:pointer;transition:background 0.12s ease;background:${isChecked ? 'rgba(79,209,222,0.08)' : 'transparent'}`)}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (playlistFormMode === 'create') {
+                                  setState((s2) => ({
+                                    newPlaylistSongIds: s2.newPlaylistSongIds.includes(sg.id)
+                                      ? s2.newPlaylistSongIds.filter((x) => x !== sg.id)
+                                      : [...s2.newPlaylistSongIds, sg.id],
+                                  }));
+                                } else {
+                                  setState((s2) => ({
+                                    editPlaylistSongIds: s2.editPlaylistSongIds.includes(sg.id)
+                                      ? s2.editPlaylistSongIds.filter((x) => x !== sg.id)
+                                      : [...s2.editPlaylistSongIds, sg.id],
+                                  }));
+                                }
+                              }}
+                              style={{ accentColor: '#2a8c97', cursor: 'pointer' }}
+                            />
+                            <span style={{ color: th.surfaceText, fontSize: 12, fontWeight: isChecked ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {sg.titulo}
+                            </span>
+                          </div>
+                          <span style={{ color: th.surfaceMuted, fontSize: 10, flexShrink: 0 }}>{sg.addedBy}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <p style={{ fontSize: 13, color: '#8696a0', lineHeight: 1.5, margin: '0 0 18px', textAlign: 'center' }}>
-                  {appT.whatsappQrInstruction || 'Abra o aplicativo de mensagens no seu celular > Dispositivos Conectados > Conectar e aponte a câmera para esta tela.'}
-                </p>
-
-                <div style={{ marginBottom: 18 }}>
-                  <QRCodeSVG data={whatsappQrData || 'SESSION_AUTH'} size={210} />
-                </div>
-
-                <div style={{ fontSize: 11.5, color: '#8696a0', marginBottom: 18, background: '#202c33', padding: '6px 14px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4fd1de', display: 'inline-block' }} />
-                  <span>{appT.whatsappServerLabel || 'Servidor:'} {wahaServerUrl}</span>
-                </div>
-
-                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <button
-                    onClick={() => handleConnectWhatsapp(true)}
-                    style={s(`width:100%;padding:11px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:#ffffff;font-size:13.5px;font-weight:700;cursor:pointer;font-family:${FONT};transition:all 0.15s`)}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    {appT.whatsappQrSimulate || 'Simular Conexão'}
-                  </button>
-                  <button
-                    onClick={() => setState({ whatsappQrModalOpen: false })}
-                    style={s(`width:100%;padding:9px;border-radius:10px;border:1px solid transparent;background:transparent;color:#8696a0;font-size:12.5px;font-weight:600;cursor:pointer;font-family:${FONT}`)}
-                  >
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button type="button" onClick={cancelPlaylistForm} style={s(`padding:7px 12px;border-radius:6px;border:1px solid ${th.inputBorder};background:none;color:${th.surfaceText};font-size:11.5px;cursor:pointer;font-family:${FONT}`)}>
                     Cancelar
                   </button>
+                  <button type="button" onClick={savePlaylistChanges} style={s(`padding:7px 16px;border-radius:6px;border:none;background:#2a8c97;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:${FONT};display:flex;align-items:center;gap:4px`)}>
+                    <Check size={13} />
+                    <span>{playlistFormMode === 'create' ? 'Criar Playlist' : 'Salvar Alterações'}</span>
+                  </button>
                 </div>
               </div>
-            </div>
-          )}
+            ) : (
+              <div style={s('display:flex;flex-direction:column;gap:8px;margin-bottom:14px')}>
+                {playlists.length === 0 ? (
+                  <div style={{ padding: '24px 12px', textAlign: 'center', color: th.surfaceMuted, fontSize: 13, border: `1px dashed ${th.modalBorder}`, borderRadius: 10 }}>
+                    Nenhuma playlist criada ainda. Clique em "Nova Playlist" para criar uma!
+                  </div>
+                ) : (
+                  playlists.map((pl) => {
+                    const isActive = currentPlaylistId === pl.id;
+                    return (
+                      <div
+                        key={pl.id}
+                        style={s(
+                          `display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:10px;border:1px solid ${isActive ? '#2a8c97' : th.surfaceBorder};background:${isActive ? 'rgba(42,140,151,0.18)' : th.hoverBg};color:${isActive ? '#fff' : th.surfaceText};transition:all 0.15s ease`
+                        )}
+                      >
+                        <div
+                          onClick={() => {
+                            setState({ currentPlaylistId: pl.id, playlistModalOpen: false });
+                            if (pl.songIds[0]) loadSong(pl.songIds[0], { keepPlaylist: true });
+                          }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1, minWidth: 0 }}
+                        >
+                          <div style={{ width: 28, height: 28, borderRadius: 6, background: isActive ? '#2a8c97' : 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isActive ? '#fff' : th.surfaceMuted, flexShrink: 0 }}>
+                            <ListMusic size={14} />
+                          </div>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={s(`font-size:13.5px;font-weight:600;color:${isActive ? '#4fd1de' : th.surfaceText};overflow:hidden;text-overflow:ellipsis;white-space:nowrap`)}>
+                              {pl.nome}
+                            </div>
+                            <div style={{ color: th.surfaceMuted, fontSize: 11, marginTop: 1 }}>
+                              {pl.songIds.length} {pl.songIds.length === 1 ? 'música' : 'músicas'}
+                              {isActive && ' • Ativa'}
+                            </div>
+                          </div>
+                        </div>
 
-          {/* Chat Resizable Modal (Single-Column, Top Selector, Transparent/Neutral Theme) */}
-          {whatsappChatModalOpen && (() => {
-            const activeChat = safeWhatsappChats.find((c) => c.id === whatsappActiveChatId) || safeWhatsappChats[0];
-            const emojis = ['😀', '😃', '😄', '😁', '😅', '😂', '😉', '😊', '😍', '🚀', '🔥', '👍', '👏', '🎉', '✅', '✨', '💡', '📌', '📋', '🎯'];
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <button
+                            onClick={() => {
+                              setState({ currentPlaylistId: pl.id, playlistModalOpen: false });
+                              if (pl.songIds[0]) loadSong(pl.songIds[0], { keepPlaylist: true });
+                            }}
+                            title="Tocar esta playlist"
+                            style={s(
+                              `background:${isActive ? '#2a8c97' : 'rgba(255,255,255,0.06)'};border:none;border-radius:6px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#fff;cursor:pointer;transition:all 0.15s`
+                            )}
+                          >
+                            <Play size={12} fill="currentColor" />
+                          </button>
 
-            return (
-              <div
-                onClick={() => setState({ whatsappChatModalOpen: false })}
-                style={s(`position:fixed;inset:0;background:rgba(0,0,0,0.78);backdrop-filter:blur(8px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box`)}
+                          <button
+                            onClick={() => startEditPlaylist(pl)}
+                            title={`Alterar playlist "${pl.nome}"`}
+                            style={s(
+                              `background:rgba(255,255,255,0.06);border:none;border-radius:6px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:${th.surfaceText};cursor:pointer;transition:all 0.15s`
+                            )}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = 'rgba(79,209,222,0.18)';
+                              e.currentTarget.style.color = '#4fd1de';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                              e.currentTarget.style.color = th.surfaceText;
+                            }}
+                          >
+                            <Pencil size={12} />
+                          </button>
+
+                          <button
+                            onClick={() => deletePlaylist(pl.id)}
+                            title={`Excluir playlist "${pl.nome}"`}
+                            style={s(
+                              `background:rgba(255,255,255,0.06);border:none;border-radius:6px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:${th.surfaceMuted};cursor:pointer;transition:all 0.15s`
+                            )}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = 'rgba(239,68,68,0.18)';
+                              e.currentTarget.style.color = '#ef4444';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                              e.currentTarget.style.color = th.surfaceMuted;
+                            }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </AnimatedModal>
+
+          {/* QR Code Modal */}
+          <AnimatedModal
+            isOpen={whatsappQrModalOpen}
+            onClose={() => setState({ whatsappQrModalOpen: false })}
+            zIndex={999}
+            overlayBg="rgba(0,0,0,0.75)"
+            backdropStyle={{ backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
+            contentStyle={s(`width:440px;max-width:96vw;background:#111b21;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:26px;box-shadow:0 30px 70px rgba(0,0,0,0.65);color:#e9edef;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;text-align:center`)}
+          >
+            <div style={s('width:100%;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px')}>
+              <div style={s('display:flex;align-items:gap:8px', 'display:flex;align-items:center;gap:8px')}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e9edef' }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                </div>
+                <span style={{ fontSize: 16, fontWeight: 700, color: '#e9edef' }}>{appT.whatsappQrTitle || 'Conectar Chat'}</span>
+              </div>
+              <button
+                onClick={() => setState({ whatsappQrModalOpen: false })}
+                style={s('background:none;border:none;cursor:pointer;color:#8696a0;padding:4px;display:flex;align-items:center;justify-content:center;border-radius:6px')}
               >
-                <div
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    width: 720,
-                    minWidth: 360,
-                    maxWidth: 'calc(100vw - 24px)',
-                    height: 640,
-                    minHeight: 400,
-                    maxHeight: 'calc(100vh - 24px)',
-                    background: '#111b21',
-                    borderRadius: 14,
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    boxShadow: '0 30px 90px rgba(0,0,0,0.85)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
-                    resize: 'both',
-                    fontFamily: FONT,
-                    boxSizing: 'border-box',
-                  }}
-                >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+
+            <p style={{ fontSize: 13, color: '#8696a0', lineHeight: 1.5, margin: '0 0 18px', textAlign: 'center' }}>
+              {appT.whatsappQrInstruction || 'Abra o aplicativo de mensagens no seu celular > Dispositivos Conectados > Conectar e aponte a câmera para esta tela.'}
+            </p>
+
+            <div style={{ marginBottom: 18 }}>
+              <QRCodeSVG data={whatsappQrData || 'SESSION_AUTH'} size={210} />
+            </div>
+
+            <div style={{ fontSize: 11.5, color: '#8696a0', marginBottom: 18, background: '#202c33', padding: '6px 14px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4fd1de', display: 'inline-block' }} />
+              <span>{appT.whatsappServerLabel || 'Servidor:'} {wahaServerUrl}</span>
+            </div>
+
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                onClick={() => handleConnectWhatsapp(true)}
+                style={s(`width:100%;padding:11px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:#ffffff;font-size:13.5px;font-weight:700;cursor:pointer;font-family:${FONT};transition:all 0.15s`)}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                {appT.whatsappQrSimulate || 'Simular Conexão'}
+              </button>
+              <button
+                onClick={() => setState({ whatsappQrModalOpen: false })}
+                style={s(`width:100%;padding:9px;border-radius:10px;border:1px solid transparent;background:transparent;color:#8696a0;font-size:12.5px;font-weight:600;cursor:pointer;font-family:${FONT}`)}
+              >
+                Cancelar
+              </button>
+            </div>
+          </AnimatedModal>
+
+          {/* Internal Chat Modal */}
+          <AnimatedModal
+            isOpen={whatsappChatModalOpen}
+            onClose={() => setState({ whatsappChatModalOpen: false })}
+            zIndex={9999}
+            overlayBg="rgba(0,0,0,0.78)"
+            backdropStyle={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', padding: '12px' }}
+            contentStyle={{
+              width: 720,
+              minWidth: 360,
+              maxWidth: 'calc(100vw - 24px)',
+              height: 640,
+              minHeight: 400,
+              maxHeight: 'calc(100vh - 24px)',
+              background: '#111b21',
+              borderRadius: 14,
+              border: '1px solid rgba(255,255,255,0.12)',
+              boxShadow: '0 30px 90px rgba(0,0,0,0.85)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              resize: 'both',
+              fontFamily: FONT,
+              boxSizing: 'border-box',
+            }}
+          >
+            {(() => {
+              const activeChat = safeWhatsappChats.find((c) => c.id === whatsappActiveChatId) || safeWhatsappChats[0];
+              const emojis = ['😀', '😃', '😄', '😁', '😅', '😂', '😉', '😊', '😍', '🚀', '🔥', '👍', '👏', '🎉', '✅', '✨', '💡', '📌', '📋', '🎯'];
+
+              return (
+                <>
                   {/* Top Bar for Bate-papo Geral */}
                   <div style={{
                     minHeight: 56,
@@ -1916,7 +4552,6 @@ export default function App() {
                     flexShrink: 0,
                     gap: 12,
                   }}>
-                    {/* Left: Team Avatar + Title */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 11, flex: 1, minWidth: 0 }}>
                       <div style={{
                         width: 38,
@@ -1945,79 +4580,13 @@ export default function App() {
                           {appT.generalChatTitle || 'Bate-papo Geral'}
                         </span>
                         <span style={{ fontSize: 11, color: '#8696a0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {appT.generalChatSubtitle || 'Gabriel A., Caio A., Henrique G. e você'} • <span style={{ color: '#4fd1de', fontWeight: 600 }}>4 online</span>
+                          {appT.generalChatSubtitle || 'Yeezy, Rezada, Lil Man e você'} • <span style={{ color: '#4fd1de', fontWeight: 600 }}>4 online</span>
                         </span>
                       </div>
                     </div>
 
                     {/* Right actions */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                      <button
-                        onClick={() => {
-                          const teamMembers = [
-                            { name: 'Gabriel Alves', color: '#4fd1de' },
-                            { name: 'Caio Araújo', color: '#8c6e2a' },
-                            { name: 'Henrique Gomes', color: '#1e5f6e' },
-                          ];
-                          const randomMember = teamMembers[Math.floor(Math.random() * teamMembers.length)];
-                          const replyReplies = [
-                            'Acabei de atualizar as tarefas no Singular Scrum! Tudo no prazo.',
-                            'Perfeito, Caio! Já fiz o merge da pull request.',
-                            'Reunião de alinhamento diário confirmada.',
-                            'Excelente trabalho nessa sprint!',
-                            'Combinado! Qualquer novidade coloco aqui no canal geral.',
-                            'Testes unitários validados no backend e Bitrix24.',
-                          ];
-                          const randomReply = replyReplies[Math.floor(Math.random() * replyReplies.length)];
-                          const now = new Date();
-                          const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-                          const replyMsg = {
-                            id: 'm_' + Date.now(),
-                            text: randomReply,
-                            sender: 'contact',
-                            author: randomMember.name,
-                            authorBg: randomMember.color,
-                            timestamp: timeStr,
-                            status: 'received',
-                          };
-                          setState((s2) => {
-                            const currentChats = (Array.isArray(s2.whatsappChats) && s2.whatsappChats.length > 0)
-                              ? s2.whatsappChats
-                              : WHATSAPP_CHATS_SEED.map((item) => ({ ...item, messages: [...item.messages] }));
-                            const targetId = s2.whatsappActiveChatId || currentChats[0]?.id || 'general';
-                            const updated = currentChats.map((c) => c.id === targetId ? { ...c, messages: [...(c.messages || []), replyMsg] } : c);
-                            try {
-                              const toSave = updated.map((c) => ({
-                                ...c,
-                                messages: (c.messages || []).filter((m) => !m.isEphemeral),
-                              }));
-                              localStorage.setItem('singular_whatsapp_chats', JSON.stringify(toSave));
-                            } catch (e) {}
-                            return { whatsappChats: updated };
-                          });
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          padding: '5px 10px',
-                          borderRadius: 6,
-                          background: 'transparent',
-                          border: '1px solid rgba(255,255,255,0.18)',
-                          color: '#e9edef',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          transition: 'all 0.15s',
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                        title="Simular mensagem recebida de um membro da equipe"
-                      >
-                        <span>⚡</span>
-                        <span>{appT.whatsappSimulateReply || 'Simular'}</span>
-                      </button>
-
                       <button
                         onClick={handleClearWhatsappCache}
                         title="Limpar histórico de mensagens"
@@ -2069,10 +4638,9 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Chat Area */}
+                  {/* Messages Area */}
                   {activeChat ? (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0b141a', minHeight: 0, position: 'relative' }}>
-                      {/* Messages Area (Left = Team Members, Right = Me) */}
                       <div style={{
                         flex: 1,
                         overflowY: 'auto',
@@ -2083,7 +4651,6 @@ export default function App() {
                         backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.02) 1px, transparent 1px)',
                         backgroundSize: '18px 18px',
                       }}>
-                        {/* Notice */}
                         <div style={{ alignSelf: 'center', margin: '2px 0 10px' }}>
                           <div style={{
                             background: '#182229',
@@ -2097,7 +4664,7 @@ export default function App() {
                             gap: 6,
                             boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
                           }}>
-                            <span>🔒</span>
+                            <Lock size={12} style={{ flexShrink: 0 }} />
                             <span>Bate-papo Geral • Mensagens salvas localmente no cache (mensagens efêmeras não persistem)</span>
                           </div>
                         </div>
@@ -2143,7 +4710,7 @@ export default function App() {
                                 }}>
                                   {m.isEphemeral && (
                                     <span style={{ color: '#fbbf24', fontSize: 9.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3, marginRight: 2 }}>
-                                      <span>⏳</span>
+                                      <Timer size={11} style={{ flexShrink: 0 }} />
                                       <span>{appT.ephemeralMode || 'Efêmera'}</span>
                                     </span>
                                   )}
@@ -2160,7 +4727,7 @@ export default function App() {
                         })}
                       </div>
 
-                      {/* Emoji Picker popup */}
+                      {/* Emoji Picker */}
                       {whatsappEmojiPickerOpen && (
                         <div style={{
                           position: 'absolute',
@@ -2198,7 +4765,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* Ephemeral Mode Indicator Banner */}
+                      {/* Ephemeral Mode Banner */}
                       {whatsappEphemeralMode && (
                         <div style={{
                           background: 'rgba(245, 158, 11, 0.12)',
@@ -2212,7 +4779,7 @@ export default function App() {
                           fontWeight: 600,
                         }}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span>⏳</span>
+                            <Timer size={13} style={{ flexShrink: 0 }} />
                             <span>{appT.ephemeralBanner || 'Modo Efêmero ativo: esta mensagem não é gravada no cache e sumirá ao recarregar'}</span>
                           </span>
                           <button
@@ -2244,7 +4811,6 @@ export default function App() {
                         flexShrink: 0,
                         borderTop: '1px solid #222d34',
                       }}>
-                        {/* Emoji Toggle */}
                         <button
                           onClick={() => setState((s2) => ({ whatsappEmojiPickerOpen: !s2.whatsappEmojiPickerOpen }))}
                           style={{ background: 'none', border: 'none', color: '#8696a0', cursor: 'pointer', padding: 6, borderRadius: 6 }}
@@ -2258,7 +4824,6 @@ export default function App() {
                           </svg>
                         </button>
 
-                        {/* Ephemeral Mode Toggle */}
                         <button
                           onClick={() => setState((s2) => ({ whatsappEphemeralMode: !s2.whatsappEphemeralMode }))}
                           style={{
@@ -2277,18 +4842,6 @@ export default function App() {
                             transition: 'all 0.15s ease',
                           }}
                           title={whatsappEphemeralMode ? 'Desativar modo efêmero' : 'Ativar mensagem efêmera (sem persistência)'}
-                          onMouseEnter={(e) => {
-                            if (!whatsappEphemeralMode) {
-                              e.currentTarget.style.color = '#fff';
-                              e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!whatsappEphemeralMode) {
-                              e.currentTarget.style.color = '#8696a0';
-                              e.currentTarget.style.background = 'transparent';
-                            }
-                          }}
                         >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                             <circle cx="12" cy="12" r="10"></circle>
@@ -2297,7 +4850,6 @@ export default function App() {
                           <span>{appT.ephemeralMode || 'Efêmera'}</span>
                         </button>
 
-                        {/* Text input */}
                         <input
                           type="text"
                           value={whatsappMessageDraft}
@@ -2323,7 +4875,6 @@ export default function App() {
                           }}
                         />
 
-                        {/* Send Button */}
                         <button
                           onClick={sendWhatsappMessage}
                           disabled={!whatsappMessageDraft.trim()}
@@ -2345,15 +4896,6 @@ export default function App() {
                             transition: 'all 0.15s',
                             flexShrink: 0,
                           }}
-                          onMouseEnter={(e) => {
-                            if (whatsappMessageDraft.trim()) {
-                              e.currentTarget.style.background = whatsappEphemeralMode ? 'rgba(245, 158, 11, 0.3)' : 'rgba(255,255,255,0.1)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = whatsappEphemeralMode && whatsappMessageDraft.trim() ? 'rgba(245, 158, 11, 0.2)' : 'transparent';
-                          }}
-                          title={whatsappEphemeralMode ? 'Enviar mensagem efêmera' : 'Enviar mensagem'}
                         >
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -2362,10 +4904,10 @@ export default function App() {
                       </div>
                     </div>
                   ) : null}
-                </div>
-              </div>
-            );
-          })()}
+                </>
+              );
+            })()}
+          </AnimatedModal>
         </div>
       )}
     </div>
