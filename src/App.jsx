@@ -16,7 +16,11 @@ import {
   Trash2,
   CheckCircle2,
   Eye,
+  EyeOff,
   Lock,
+  Shield,
+  Key,
+  AlertCircle,
   Timer,
   ArrowRight,
   Pencil,
@@ -142,6 +146,7 @@ function QRCodeSVG({ data, size = 200 }) {
         pointerEvents: 'none',
       }} />
     </div>
+
   );
 }
 
@@ -259,14 +264,16 @@ function UserAvatar({ user, size = 30, fontSize = 11, style = {}, title = '' }) 
         height: size,
         borderRadius: '50%',
         background: avatarBg,
-        display: 'flex',
+        color: '#ffffff',
+        display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#fff',
-        fontSize: fontSize,
+        fontSize,
         fontWeight: 700,
         flexShrink: 0,
         boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+        border: '1px solid rgba(255,255,255,0.18)',
+        letterSpacing: '0.04em',
         ...style,
       }}
     >
@@ -275,15 +282,51 @@ function UserAvatar({ user, size = 30, fontSize = 11, style = {}, title = '' }) 
   );
 }
 
+const savedAuthSession = (() => {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('singular_auth_user') : null;
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+})();
+
 const initialState = {
   login: '',
   password: '',
   showPassword: false,
-  remember: false,
+  remember: Boolean(savedAuthSession?.userId),
+  loginLoading: false,
+  loginError: '',
+  // First Login Modal State
+  firstLoginModalOpen: false,
+  firstLoginUser: null,
+  firstLoginPassword: '',
+  firstLoginConfirm: '',
+  firstLoginShowPass: false,
+  firstLoginShowConfirm: false,
+  firstLoginLoading: false,
+  firstLoginError: '',
+  // Reset Password Modal State
+  resetPasswordModalOpen: false,
+  resetLoginInput: '',
+  resetPassword: '',
+  resetConfirmPassword: '',
+  resetShowPass: false,
+  resetShowConfirm: false,
+  resetLoading: false,
+  resetError: '',
+  // Settings Password Change State
+  settingsNewPassword: '',
+  settingsConfirmPassword: '',
+  settingsShowNewPassword: false,
+  settingsShowConfirmPassword: false,
+  settingsPasswordLoading: false,
+  settingsPasswordError: '',
   lang: 'pt',
   fadeOpacity: 1,
-  view: 'login',
-  route: 'caio-marques',
+  view: savedAuthSession?.userId ? 'app' : 'login',
+  route: savedAuthSession?.userId || 'caio-marques',
   isMobile: false,
   mobileSidebarOpen: false,
   contentOpacity: 1,
@@ -424,7 +467,11 @@ export default function App() {
   const volumeLeaveTimerRef = useRef(null);
 
   const {
-    login, password, showPassword, remember, lang, fadeOpacity, view, route, isMobile, mobileSidebarOpen,
+    login, password, showPassword, remember, loginLoading, loginError,
+    firstLoginModalOpen, firstLoginUser, firstLoginPassword, firstLoginConfirm, firstLoginShowPass, firstLoginShowConfirm, firstLoginLoading, firstLoginError,
+    resetPasswordModalOpen, resetLoginInput, resetPassword, resetConfirmPassword, resetShowPass, resetShowConfirm, resetLoading, resetError,
+    settingsNewPassword, settingsConfirmPassword, settingsShowNewPassword, settingsShowConfirmPassword, settingsPasswordLoading, settingsPasswordError,
+    lang, fadeOpacity, view, route, isMobile, mobileSidebarOpen,
     contentOpacity, contentTransform, contentTransition, mainTheme, boardView, userMenuOpen, userMenuMounted, userMenuClosing,
     settingsModalOpen, logoutModalOpen, notifications, users, tasks, feed, contacts, detailsTaskId, actionTaskId,
     draftTitulo, draftProjeto, draftTarefa, draftDetalhes, draftPrazo, draftStatus, draftUserId, draftConcluida,
@@ -462,15 +509,203 @@ export default function App() {
 
   function doLogout() {
     try {
-      localStorage.clear();
+      localStorage.removeItem('singular_auth_user');
       sessionStorage.clear();
       document.cookie.split(';').forEach((c) => {
         const name = c.split('=')[0].trim();
         if (name) document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
       });
     } catch (e) {}
-    setState({ logoutModalOpen: false, userMenuOpen: false, view: 'login', route: 'caio-marques', boardView: 'kanban' });
+    setState({
+      logoutModalOpen: false,
+      userMenuOpen: false,
+      view: 'login',
+      route: 'caio-marques',
+      boardView: 'kanban',
+      password: '',
+      loginError: '',
+      firstLoginModalOpen: false,
+      resetPasswordModalOpen: false,
+    });
   }
+
+  async function handleLogin(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const trimmedLogin = (login || '').trim();
+    if (!trimmedLogin) {
+      setState({ loginError: 'Por favor, digite seu usuário ou nome.' });
+      return;
+    }
+    setState({ loginLoading: true, loginError: '' });
+    try {
+      const res = await api.login(trimmedLogin, password);
+      if (res.firstLogin) {
+        setState({
+          loginLoading: false,
+          firstLoginUser: res.user,
+          firstLoginModalOpen: true,
+          firstLoginPassword: '',
+          firstLoginConfirm: '',
+          firstLoginError: '',
+        });
+        return;
+      }
+
+      if (remember) {
+        try {
+          localStorage.setItem('singular_auth_user', JSON.stringify({ userId: res.user.id }));
+        } catch (e) {}
+      } else {
+        try {
+          localStorage.removeItem('singular_auth_user');
+        } catch (e) {}
+      }
+
+      setState({
+        loginLoading: false,
+        view: 'app',
+        route: res.user.id,
+        password: '',
+        loginError: '',
+      });
+
+      addToast({
+        title: 'Bem-vindo de volta',
+        message: `Login realizado com sucesso como ${res.user.name}.`,
+        accent: '#4fd1de',
+      });
+    } catch (err) {
+      setState({
+        loginLoading: false,
+        loginError: err.message || 'Erro ao realizar login.',
+      });
+    }
+  }
+
+  async function handleFirstLoginSubmit(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!firstLoginPassword || firstLoginPassword.length < 3) {
+      setState({ firstLoginError: 'A senha deve ter no mínimo 3 caracteres.' });
+      return;
+    }
+    if (firstLoginPassword !== firstLoginConfirm) {
+      setState({ firstLoginError: 'As senhas digitadas não coincidem.' });
+      return;
+    }
+    if (!firstLoginUser) {
+      setState({ firstLoginError: 'Usuário não identificado.' });
+      return;
+    }
+
+    setState({ firstLoginLoading: true, firstLoginError: '' });
+    try {
+      const res = await api.setPassword(firstLoginUser.id, firstLoginPassword);
+      if (remember) {
+        try {
+          localStorage.setItem('singular_auth_user', JSON.stringify({ userId: firstLoginUser.id }));
+        } catch (e) {}
+      }
+
+      setState({
+        firstLoginLoading: false,
+        firstLoginModalOpen: false,
+        view: 'app',
+        route: firstLoginUser.id,
+        password: '',
+        firstLoginPassword: '',
+        firstLoginConfirm: '',
+        firstLoginError: '',
+      });
+
+      addToast({
+        title: 'Senha cadastrada com sucesso!',
+        message: 'Sua senha foi salva com segurança no banco de dados.',
+        accent: '#22c55e',
+      });
+    } catch (err) {
+      setState({
+        firstLoginLoading: false,
+        firstLoginError: err.message || 'Erro ao cadastrar senha.',
+      });
+    }
+  }
+
+  async function handleResetPasswordSubmit(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const trimmedLogin = (resetLoginInput || '').trim();
+    if (!trimmedLogin) {
+      setState({ resetError: 'Informe o usuário ou nome de login.' });
+      return;
+    }
+    if (!resetPassword || resetPassword.length < 3) {
+      setState({ resetError: 'A nova senha deve ter no mínimo 3 caracteres.' });
+      return;
+    }
+    if (resetPassword !== resetConfirmPassword) {
+      setState({ resetError: 'As senhas digitadas não coincidem.' });
+      return;
+    }
+
+    setState({ resetLoading: true, resetError: '' });
+    try {
+      await api.resetPassword(trimmedLogin, resetPassword);
+      setState({
+        resetLoading: false,
+        resetPasswordModalOpen: false,
+        login: trimmedLogin,
+        password: '',
+        resetPassword: '',
+        resetConfirmPassword: '',
+        resetError: '',
+      });
+
+      addToast({
+        title: 'Senha redefinida com sucesso!',
+        message: 'Você já pode entrar utilizando sua nova senha.',
+        accent: '#22c55e',
+      });
+    } catch (err) {
+      setState({
+        resetLoading: false,
+        resetError: err.message || 'Erro ao redefinir senha.',
+      });
+    }
+  }
+
+  async function handleSaveSettingsPassword(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!settingsNewPassword || settingsNewPassword.length < 3) {
+      setState({ settingsPasswordError: 'A nova senha deve ter no mínimo 3 caracteres.' });
+      return;
+    }
+    if (settingsNewPassword !== settingsConfirmPassword) {
+      setState({ settingsPasswordError: 'As senhas não coincidem.' });
+      return;
+    }
+
+    setState({ settingsPasswordLoading: true, settingsPasswordError: '' });
+    try {
+      await api.setPassword(currentUser.id, settingsNewPassword);
+      setState({
+        settingsPasswordLoading: false,
+        settingsNewPassword: '',
+        settingsConfirmPassword: '',
+        settingsPasswordError: '',
+      });
+
+      addToast({
+        title: 'Senha alterada com sucesso!',
+        message: 'Sua nova senha foi salva e sincronizada com o banco de dados.',
+        accent: '#22c55e',
+      });
+    } catch (err) {
+      setState({
+        settingsPasswordLoading: false,
+        settingsPasswordError: err.message || 'Erro ao atualizar senha.',
+      });
+    }
+  }
+
 
   function navigateToRoute(targetRoute) {
     if (route === targetRoute) {
@@ -1889,7 +2124,14 @@ export default function App() {
                 <h1 style={s('margin:0;color:#ffffff;font-size:30px;font-weight:700;letter-spacing:0.06em')}>SINGULAR</h1>
               </div>
 
-              <div style={{ ...s('margin-top:22px'), transition: 'opacity 0.25s ease, transform 0.25s ease', opacity: fadeOpacity, transform: `translateX(${slideX})` }}>
+              <form onSubmit={handleLogin} style={{ ...s('margin-top:22px'), transition: 'opacity 0.25s ease, transform 0.25s ease', opacity: fadeOpacity, transform: `translateX(${slideX})` }}>
+                {loginError && (
+                  <div style={s('background:rgba(239,68,68,0.16);border:1px solid rgba(239,68,68,0.4);border-radius:9px;padding:10px 13px;color:#fca5a5;font-size:12.5px;margin-bottom:16px;display:flex;align-items:center;gap:8px')}>
+                    <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                    <span>{loginError}</span>
+                  </div>
+                )}
+
                 <div style={s('position:relative;margin-bottom:16px')}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" style={s('position:absolute;left:16px;top:50%;transform:translateY(-50%);pointer-events:none')}>
                     <circle cx="12" cy="8" r="4"></circle>
@@ -1899,8 +2141,9 @@ export default function App() {
                     type="text"
                     placeholder={t.loginPlaceholder}
                     value={login}
-                    onChange={(e) => setState({ login: e.target.value })}
-                    style={s(`width:100%;box-sizing:border-box;padding:15px 16px 15px 44px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#fff;font-size:14.5px;font-family:${FONT};outline:none`)}
+                    disabled={loginLoading}
+                    onChange={(e) => setState({ login: e.target.value, loginError: '' })}
+                    style={s(`width:100%;box-sizing:border-box;padding:15px 16px 15px 44px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#fff;font-size:14.5px;font-family:${FONT};outline:none;transition:border-color 0.2s`)}
                   />
                 </div>
 
@@ -1913,10 +2156,11 @@ export default function App() {
                     type={showPassword ? 'text' : 'password'}
                     placeholder={t.passwordPlaceholder}
                     value={password}
-                    onChange={(e) => setState({ password: e.target.value })}
-                    style={s(`width:100%;box-sizing:border-box;padding:15px 44px 15px 44px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#fff;font-size:14.5px;font-family:${FONT};outline:none`)}
+                    disabled={loginLoading}
+                    onChange={(e) => setState({ password: e.target.value, loginError: '' })}
+                    style={s(`width:100%;box-sizing:border-box;padding:15px 44px 15px 44px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#fff;font-size:14.5px;font-family:${FONT};outline:none;transition:border-color 0.2s`)}
                   />
-                  <button onClick={() => setState((s2) => ({ showPassword: !s2.showPassword }))} style={s('position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.5);padding:4px')}>
+                  <button type="button" onClick={() => setState((s2) => ({ showPassword: !s2.showPassword }))} style={s('position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.5);padding:4px')}>
                     {showPassword ? (
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                     ) : (
@@ -1927,20 +2171,38 @@ export default function App() {
 
                 <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:22px')}>
                   <label style={s('display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.7);font-size:13px;cursor:pointer;user-select:none')}>
-                    <button onClick={() => setState((s2) => ({ remember: !s2.remember }))} style={s(`width:32px;height:18px;border-radius:999px;border:none;cursor:pointer;padding:2px;display:flex;align-items:center;background:${rememberBg};transition:background 0.2s`)}>
+                    <button type="button" onClick={() => setState((s2) => ({ remember: !s2.remember }))} style={s(`width:32px;height:18px;border-radius:999px;border:none;cursor:pointer;padding:2px;display:flex;align-items:center;background:${rememberBg};transition:background 0.2s`)}>
                       <span style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', transform: remember ? 'translateX(14px)' : 'translateX(0)', transition: 'transform 0.2s' }}></span>
                     </button>
                     {t.remember}
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => setState({ resetPasswordModalOpen: true, resetLoginInput: login, resetError: '', resetPassword: '', resetConfirmPassword: '' })}
+                    style={s('background:none;border:none;cursor:pointer;color:#4fd1de;font-size:12.5px;font-family:${FONT};padding:0;text-decoration:none;opacity:0.88;transition:opacity 0.15s')}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.88'; }}
+                  >
+                    {t.forgotPassword || 'Esqueci minha senha'}
+                  </button>
                 </div>
 
                 <button
-                  onClick={() => setState({ view: 'app' })}
-                  style={s(`width:100%;padding:14px;border-radius:10px;border:none;background:#2a8c97;color:#ffffff;font-size:15px;font-weight:700;letter-spacing:0.04em;cursor:pointer;font-family:${FONT};box-shadow:0 4px 18px rgba(42,140,151,0.4);transition:background 0.2s`)}
+                  type="submit"
+                  disabled={loginLoading}
+                  style={s(`width:100%;padding:14px;border-radius:10px;border:none;background:#2a8c97;color:#ffffff;font-size:15px;font-weight:700;letter-spacing:0.04em;cursor:${loginLoading ? 'not-allowed' : 'pointer'};opacity:${loginLoading ? 0.75 : 1};font-family:${FONT};box-shadow:0 4px 18px rgba(42,140,151,0.4);transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:8px`)}
                 >
-                  {t.submit}
+                  {loginLoading ? (
+                    <>
+                      <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }}></div>
+                      <span>Validando...</span>
+                    </>
+                  ) : (
+                    <span>{t.submit}</span>
+                  )}
                 </button>
-              </div>
+              </form>
+
 
               <div style={s('margin-top:28px;text-align:center;color:rgba(255,255,255,0.35);font-size:11.5px;letter-spacing:0.02em')}>
                 {t.footer}
@@ -2121,21 +2383,6 @@ export default function App() {
                     }}
                   >
                     <span>Conect Me</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleConnectWhatsapp(true)}
-                    style={s(`width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 8px;border-radius:6px;background:rgba(42,140,151,0.14);color:#4fd1de;border:1px dashed rgba(79,209,222,0.35);font-family:${FONT};font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s ease`)}
-                    title="Simula conexão imediata e abre o layout da conversa (Dev)"
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(42,140,151,0.26)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(42,140,151,0.14)';
-                    }}
-                  >
-                    <Zap size={13} style={{ flexShrink: 0 }} />
-                    <span>Simular Conexão (Dev)</span>
                   </button>
                 </div>
               ) : (
@@ -3332,13 +3579,212 @@ export default function App() {
             </div>
           </AnimatedModal>
 
+          {/* ==================== MODAL PRIMEIRO LOGIN (FADE-IN) ==================== */}
+          <AnimatedModal
+            isOpen={firstLoginModalOpen}
+            onClose={() => {}}
+            zIndex={60}
+            overlayBg="rgba(3, 11, 14, 0.88)"
+            contentStyle={s(`width:440px;max-width:100%;background:rgba(8, 22, 27, 0.95);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(79,209,222,0.35);border-radius:20px;padding:34px 30px;box-shadow:0 0 0 1px rgba(79,209,222,0.2), 0 0 45px rgba(42,140,151,0.35), 0 30px 60px rgba(0,0,0,0.65);display:flex;flex-direction:column;gap:18px`)}
+          >
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ width: 50, height: 50, borderRadius: '50%', background: 'rgba(79,209,222,0.15)', border: '1px solid rgba(79,209,222,0.35)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#4fd1de', marginBottom: 12 }}>
+                <Shield size={26} />
+              </div>
+              <h2 style={s('margin:0;color:#ffffff;font-size:20px;font-weight:700;letter-spacing:0.02em')}>
+                {t.firstLoginTitle || 'Criar Senha de Acesso'}
+              </h2>
+              <p style={s('margin:8px 0 0;color:rgba(255,255,255,0.65);font-size:13px;line-height:1.45')}>
+                {t.firstLoginSubtitle || 'Como este é o seu primeiro acesso ao Singular Scrum, por favor defina sua senha de segurança.'}
+              </p>
+            </div>
+
+            {firstLoginUser && (
+              <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <UserAvatar user={firstLoginUser} size={34} fontSize={12} />
+                <div>
+                  <div style={{ color: '#fff', fontSize: 13.5, fontWeight: 700 }}>{firstLoginUser.name}</div>
+                  <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11.5 }}>@{firstLoginUser.id}</div>
+                </div>
+              </div>
+            )}
+
+            {firstLoginError && (
+              <div style={s('background:rgba(239,68,68,0.16);border:1px solid rgba(239,68,68,0.4);border-radius:9px;padding:10px 13px;color:#fca5a5;font-size:12.5px;display:flex;align-items:center;gap:8px')}>
+                <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                <span>{firstLoginError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleFirstLoginSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={s('display:block;color:rgba(255,255,255,0.75);font-size:12.5px;font-weight:600;margin-bottom:6px')}>
+                  Nova Senha *
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={firstLoginShowPass ? 'text' : 'password'}
+                    placeholder="Digite sua nova senha"
+                    value={firstLoginPassword}
+                    autoFocus
+                    onChange={(e) => setState({ firstLoginPassword: e.target.value, firstLoginError: '' })}
+                    style={s(`width:100%;box-sizing:border-box;padding:12px 42px 12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:14px;font-family:${FONT};outline:none`)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setState((s2) => ({ firstLoginShowPass: !s2.firstLoginShowPass }))}
+                    style={s('position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.5);padding:4px')}
+                  >
+                    {firstLoginShowPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label style={s('display:block;color:rgba(255,255,255,0.75);font-size:12.5px;font-weight:600;margin-bottom:6px')}>
+                  Repetir Nova Senha *
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={firstLoginShowConfirm ? 'text' : 'password'}
+                    placeholder="Repita a nova senha"
+                    value={firstLoginConfirm}
+                    onChange={(e) => setState({ firstLoginConfirm: e.target.value, firstLoginError: '' })}
+                    style={s(`width:100%;box-sizing:border-box;padding:12px 42px 12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:14px;font-family:${FONT};outline:none`)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setState((s2) => ({ firstLoginShowConfirm: !s2.firstLoginShowConfirm }))}
+                    style={s('position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.5);padding:4px')}
+                  >
+                    {firstLoginShowConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={firstLoginLoading}
+                style={s(`margin-top:6px;width:100%;padding:13px;border-radius:10px;border:none;background:#2a8c97;color:#ffffff;font-size:14.5px;font-weight:700;cursor:${firstLoginLoading ? 'not-allowed' : 'pointer'};opacity:${firstLoginLoading ? 0.75 : 1};font-family:${FONT};box-shadow:0 4px 18px rgba(42,140,151,0.4);display:flex;align-items:center;justify-content:center;gap:8px;transition:background 0.2s`)}
+              >
+                {firstLoginLoading ? 'Salvando no banco de dados...' : (t.savePasswordSubmit || 'Salvar e Acessar')}
+              </button>
+            </form>
+          </AnimatedModal>
+
+          {/* ==================== MODAL REDEFINIR SENHA ==================== */}
+          <AnimatedModal
+            isOpen={resetPasswordModalOpen}
+            onClose={() => setState({ resetPasswordModalOpen: false })}
+            zIndex={60}
+            overlayBg="rgba(3, 11, 14, 0.88)"
+            contentStyle={s(`width:440px;max-width:100%;background:rgba(8, 22, 27, 0.95);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(79,209,222,0.35);border-radius:20px;padding:32px 30px;box-shadow:0 0 0 1px rgba(79,209,222,0.2), 0 0 45px rgba(42,140,151,0.35), 0 30px 60px rgba(0,0,0,0.65);display:flex;flex-direction:column;gap:16px`)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(79,209,222,0.15)', border: '1px solid rgba(79,209,222,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4fd1de' }}>
+                  <Key size={20} />
+                </div>
+                <div>
+                  <h2 style={s('margin:0;color:#ffffff;font-size:18px;font-weight:700')}>
+                    {t.resetPassword || 'Redefinir Senha'}
+                  </h2>
+                  <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: '11.5px', marginTop: 2 }}>
+                    Crie uma nova senha para seu usuário
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setState({ resetPasswordModalOpen: false })}
+                style={s('background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.5);padding:4px')}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {resetError && (
+              <div style={s('background:rgba(239,68,68,0.16);border:1px solid rgba(239,68,68,0.4);border-radius:9px;padding:10px 13px;color:#fca5a5;font-size:12.5px;display:flex;align-items:center;gap:8px')}>
+                <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                <span>{resetError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleResetPasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={s('display:block;color:rgba(255,255,255,0.75);font-size:12px;font-weight:600;margin-bottom:6px')}>
+                  Usuário ou Login *
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Alderson, Yeezy, caio-marques"
+                  value={resetLoginInput}
+                  onChange={(e) => setState({ resetLoginInput: e.target.value, resetError: '' })}
+                  style={s(`width:100%;box-sizing:border-box;padding:11px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:13.5px;font-family:${FONT};outline:none`)}
+                />
+              </div>
+
+              <div>
+                <label style={s('display:block;color:rgba(255,255,255,0.75);font-size:12px;font-weight:600;margin-bottom:6px')}>
+                  Nova Senha *
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={resetShowPass ? 'text' : 'password'}
+                    placeholder="Digite a nova senha"
+                    value={resetPassword}
+                    onChange={(e) => setState({ resetPassword: e.target.value, resetError: '' })}
+                    style={s(`width:100%;box-sizing:border-box;padding:11px 40px 11px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:13.5px;font-family:${FONT};outline:none`)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setState((s2) => ({ resetShowPass: !s2.resetShowPass }))}
+                    style={s('position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.5);padding:4px')}
+                  >
+                    {resetShowPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label style={s('display:block;color:rgba(255,255,255,0.75);font-size:12px;font-weight:600;margin-bottom:6px')}>
+                  Confirmar Nova Senha *
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={resetShowConfirm ? 'text' : 'password'}
+                    placeholder="Repita a nova senha"
+                    value={resetConfirmPassword}
+                    onChange={(e) => setState({ resetConfirmPassword: e.target.value, resetError: '' })}
+                    style={s(`width:100%;box-sizing:border-box;padding:11px 40px 11px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:13.5px;font-family:${FONT};outline:none`)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setState((s2) => ({ resetShowConfirm: !s2.resetShowConfirm }))}
+                    style={s('position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.5);padding:4px')}
+                  >
+                    {resetShowConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={resetLoading}
+                style={s(`margin-top:6px;width:100%;padding:12px;border-radius:10px;border:none;background:#2a8c97;color:#ffffff;font-size:14px;font-weight:700;cursor:${resetLoading ? 'not-allowed' : 'pointer'};opacity:${resetLoading ? 0.75 : 1};font-family:${FONT};box-shadow:0 4px 18px rgba(42,140,151,0.4);display:flex;align-items:center;justify-content:center;gap:8px;transition:background 0.2s`)}
+              >
+                {resetLoading ? 'Redefinindo...' : 'Redefinir e Salvar'}
+              </button>
+            </form>
+          </AnimatedModal>
+
           {/* ==================== CONFIGURAÇÕES MODAL ==================== */}
           <AnimatedModal
             isOpen={settingsModalOpen}
             onClose={() => setState({ settingsModalOpen: false })}
             zIndex={50}
             overlayBg={th.overlayBg}
-            contentStyle={s(`width:440px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5);display:flex;flex-direction:column;gap:16px`)}
+            contentStyle={s(`width:440px;max-width:100%;background:${th.modalBg};border:1px solid ${th.modalBorder};border-radius:16px;padding:26px;box-shadow:0 30px 60px rgba(0,0,0,0.5);display:flex;flex-direction:column;gap:16px;max-height:88vh;overflow-y:auto;box-sizing:border-box`)}
           >
             {/* Header */}
             <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:4px')}>
@@ -3452,13 +3898,73 @@ export default function App() {
               </div>
             </div>
 
-            {/* 4. Idioma */}
+            {/* 5. Segurança & Alterar Senha */}
+            <div style={s(`padding:12px 0;border-bottom:1px solid ${th.modalBorder};display:flex;flex-direction:column;gap:10px`)}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Lock size={15} style={{ color: '#4fd1de' }} />
+                <label style={s(`color:${th.surfaceText};font-size:14px;font-weight:600`)}>Segurança & Alterar Senha</label>
+              </div>
+
+              {settingsPasswordError && (
+                <div style={s('background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.35);border-radius:7px;padding:8px 12px;color:#fca5a5;font-size:12px;display:flex;align-items:center;gap:6px')}>
+                  <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                  <span>{settingsPasswordError}</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={settingsShowNewPassword ? 'text' : 'password'}
+                    value={settingsNewPassword}
+                    onChange={(e) => setState({ settingsNewPassword: e.target.value, settingsPasswordError: '' })}
+                    placeholder="Nova senha"
+                    style={s(`width:100%;box-sizing:border-box;padding:9px 36px 9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setState((s2) => ({ settingsShowNewPassword: !s2.settingsShowNewPassword }))}
+                    style={s(`position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:${th.surfaceMuted};padding:2px`)}
+                  >
+                    {settingsShowNewPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={settingsShowConfirmPassword ? 'text' : 'password'}
+                    value={settingsConfirmPassword}
+                    onChange={(e) => setState({ settingsConfirmPassword: e.target.value, settingsPasswordError: '' })}
+                    placeholder="Confirmar nova senha"
+                    style={s(`width:100%;box-sizing:border-box;padding:9px 36px 9px 12px;border-radius:8px;border:1px solid ${th.inputBorder};background:${th.inputBg};color:${th.surfaceText};font-size:13px;font-family:${FONT};outline:none`)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setState((s2) => ({ settingsShowConfirmPassword: !s2.settingsShowConfirmPassword }))}
+                    style={s(`position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:${th.surfaceMuted};padding:2px`)}
+                  >
+                    {settingsShowConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={settingsPasswordLoading}
+                  onClick={handleSaveSettingsPassword}
+                  style={s(`width:100%;padding:9px 16px;border-radius:8px;border:none;background:#2a8c97;color:#fff;font-size:12.5px;font-weight:700;cursor:${settingsPasswordLoading ? 'not-allowed' : 'pointer'};opacity:${settingsPasswordLoading ? 0.75 : 1};font-family:${FONT};display:flex;align-items:center;justify-content:center;gap:6px;transition:background 0.15s`)}
+                >
+                  {settingsPasswordLoading ? 'Salvando no banco...' : 'Salvar Nova Senha'}
+                </button>
+              </div>
+            </div>
+
+            {/* 6. Idioma */}
             <div style={s(`display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid ${th.modalBorder}`)}>
               <span style={s(`color:${th.surfaceSubtle};font-size:14px`)}>{appT.settingsLanguage}</span>
               <div style={s(`display:flex;gap:2px;background:${th.toolbarBtnBg};border:0px;border-radius:5px;padding:2px`)}>{langSwitch}</div>
             </div>
 
-            {/* 5. Notificações */}
+            {/* 7. Notificações */}
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:10px 0')}>
               <span style={s(`color:${th.surfaceSubtle};font-size:14px`)}>{appT.settingsNotifications}</span>
               <button onClick={() => setState((s2) => ({ notifications: !s2.notifications }))} style={s(`width:34px;height:19px;border-radius:999px;border:none;cursor:pointer;padding:2px;display:flex;align-items:center;background:${notifBg};justify-content:${notifJustify};transition:background 0.15s`)}>
@@ -3466,6 +3972,7 @@ export default function App() {
               </button>
             </div>
           </AnimatedModal>
+
 
           {/* ==================== NOVO CONTATO / LEAD MODAL ==================== */}
           <AnimatedModal

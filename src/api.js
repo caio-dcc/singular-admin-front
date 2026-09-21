@@ -7,11 +7,23 @@ async function request(path, options) {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
-  if (!res.ok) throw new Error('API error ' + res.status + ' on ' + path);
+  if (!res.ok) {
+    let errorMsg = 'API error ' + res.status + ' on ' + path;
+    try {
+      const errData = await res.json();
+      if (errData && errData.error) errorMsg = errData.error;
+    } catch (e) {}
+    throw new Error(errorMsg);
+  }
   return res.json();
 }
 
 export const api = {
+  // Auth & Password
+  login: (login, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ login, password }) }),
+  setPassword: (userId, newPassword) => request('/auth/set-password', { method: 'POST', body: JSON.stringify({ userId, newPassword }) }),
+  resetPassword: (login, newPassword) => request('/auth/reset-password', { method: 'POST', body: JSON.stringify({ login, newPassword }) }),
+
   getUsers: () => request('/users'),
   updateUser: (id, patch) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
   getTasks: () => request('/tasks'),
@@ -42,3 +54,4 @@ export const api = {
   getChatMessages: (chatId) => request(`/chats/${chatId}/messages`),
   sendChatMessage: (chatId, senderId, text) => request(`/chats/${chatId}/messages`, { method: 'POST', body: JSON.stringify({ senderId, text }) }),
 };
+

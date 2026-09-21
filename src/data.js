@@ -6,7 +6,14 @@ export const STRINGS = {
     passwordPlaceholder: 'Senha',
     remember: 'Lembrar de mim',
     submit: 'Entrar',
-    footer: '© 2025 Singular. Todos os direitos reservados.',
+    forgotPassword: 'Esqueci minha senha',
+    resetPassword: 'Redefinir senha',
+    firstLoginTitle: 'Criar Senha de Acesso',
+    firstLoginSubtitle: 'Como este é o seu primeiro acesso, defina sua senha de segurança.',
+    newPasswordPlaceholder: 'Nova senha',
+    confirmPasswordPlaceholder: 'Repita a nova senha',
+    savePasswordSubmit: 'Salvar e Acessar',
+    footer: '© 2026 Singular. Todos os direitos reservados.',
   },
   en: {
     welcome: 'Welcome back',
@@ -15,9 +22,17 @@ export const STRINGS = {
     passwordPlaceholder: 'Password',
     remember: 'Remember me',
     submit: 'Sign in',
-    footer: '© 2025 Singular. All rights reserved.',
+    forgotPassword: 'Forgot password',
+    resetPassword: 'Reset password',
+    firstLoginTitle: 'Create Access Password',
+    firstLoginSubtitle: 'As this is your first access, set your security password.',
+    newPasswordPlaceholder: 'New password',
+    confirmPasswordPlaceholder: 'Repeat new password',
+    savePasswordSubmit: 'Save and Enter',
+    footer: '© 2026 Singular. All rights reserved.',
   },
 };
+
 
 export const USERS = [
   { id: 'caio-marques', name: 'Alderson', initials: 'AL', avatarBg: '#2a8c97' },
